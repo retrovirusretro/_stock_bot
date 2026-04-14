@@ -1,0 +1,9 @@
+# Kesinlikle commit etme
+.env
+venv/
+.venv/
+*.pyc
+__pycache__/
+logs/
+*.log
+.DS_Store
