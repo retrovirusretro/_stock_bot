@@ -2,12 +2,14 @@
 """
 data.py - Fiyat verisi cekme modulu
 Hafta 1: yfinance ile OHLCV verisi, SMA, RSI hesaplama
+Refactor: pandas-ta -> ta (Python 3.11 uyumlu)
 """
 
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import ta
 
 
 def get_price_data(symbol, start, end):
@@ -50,7 +52,7 @@ def add_sma(df, periods):
         periods: SMA periyotlari listesi (orn: [20, 50])
     """
     for p in periods:
-        df[f"sma{p}"] = df["close"].rolling(window=p).mean()
+        df[f"sma{p}"] = ta.trend.sma_indicator(df["close"], window=p)
         print(f"[DATA] SMA{p} hesaplandi.")
     return df
 
@@ -63,14 +65,33 @@ def add_rsi(df, period=14):
         df:     OHLCV DataFrame
         period: RSI periyodu (varsayilan: 14)
     """
-    delta    = df["close"].diff()
-    gain     = delta.clip(lower=0)
-    loss     = -delta.clip(upper=0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-    rs       = avg_gain / avg_loss
-    df["rsi"] = 100 - (100 / (1 + rs))
+    df["rsi"] = ta.momentum.rsi(df["close"], window=period)
     print(f"[DATA] RSI{period} hesaplandi.")
+    return df
+
+
+def add_indicators(df, sma_periods=None, rsi_period=14):
+    """
+    Tum indiktorleri tek seferde hesaplar. risk.py icin ATR de ekler.
+
+    Args:
+        df:          OHLCV DataFrame
+        sma_periods: SMA periyotlari listesi (varsayilan: [20, 50, 200])
+        rsi_period:  RSI periyodu (varsayilan: 14)
+    """
+    if sma_periods is None:
+        sma_periods = [20, 50, 200]
+    df = add_sma(df, sma_periods)
+    df = add_rsi(df, rsi_period)
+    # ATR - volatilite olcumu, risk.py pozisyon boyutu icin
+    df["atr"] = ta.volatility.average_true_range(
+        df["high"], df["low"], df["close"], window=14
+    )
+    print("[DATA] ATR14 hesaplandi.")
+    # MACD - ileride filtre olarak kullanilacak
+    df["macd"]        = ta.trend.macd(df["close"])
+    df["macd_signal"] = ta.trend.macd_signal(df["close"])
+    print("[DATA] MACD hesaplandi.")
     return df
 
 
