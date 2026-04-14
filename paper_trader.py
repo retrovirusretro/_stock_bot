@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from data     import get_price_data, add_sma, add_rsi
 from strategy import sma_crossover_signals
 from logger   import log_signal, log_info, log_error
+from risk     import RiskManager
 import broker
 
 # ---------------------------------------------------------------------------
@@ -32,6 +33,16 @@ SMA_SLOW = 50
 
 # Veri penceresi: son N gun (SMA50 icin en az 60 gun lazim)
 DATA_DAYS = 120
+
+# ---------------------------------------------------------------------------
+# Risk Yoneticisi
+# ---------------------------------------------------------------------------
+
+risk = RiskManager(capital=100000)
+
+# Gunluk kayip takibi (basit, in-memory; her calistirildiginda sifirlanir)
+_daily_loss = 0.0
+_open_positions_count = 0
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +113,10 @@ def handle_signal(result):
     """
     Sinyal logla; SEND_ORDERS=True ise emir gonder.
     Duplicate BUY onleme: zaten pozisyon varsa BUY gonderme.
+    Risk kontrolleri: pozisyon limiti, gunluk kayip limiti, lot hesabi.
     """
+    global _open_positions_count, _daily_loss
+
     symbol = result["symbol"]
     action = result["action"]
     price  = result["price"]
@@ -112,6 +126,38 @@ def handle_signal(result):
 
     # Her durumda logla
     log_signal(symbol, action, price, sma20, sma50, rsi)
+
+    # --- Risk: gunluk kayip limiti kontrolu ---
+    if risk.should_stop_trading(_daily_loss):
+        log_info(
+            f"[RISK] Gunluk kayip limiti asildi "
+            f"(kayip={_daily_loss:.2f}, limit={risk.capital * risk.daily_loss_limit:.2f}). "
+            f"Islem durduruldu."
+        )
+        return
+
+    if action == "BUY":
+        # --- Risk: max acik pozisyon kontrolu ---
+        if not risk.can_open_position(_open_positions_count):
+            log_info(
+                f"[RISK] {symbol} BUY atlanadi: max acik pozisyon sayisina ulasildi "
+                f"({_open_positions_count}/{risk.max_open_positions})."
+            )
+            return
+
+        # --- Risk: pozisyon buyutu ve fiyat seviyeleri ---
+        qty = risk.position_size(price)
+        sl  = risk.stop_loss_price(price)
+        tp  = risk.take_profit_price(price)
+        log_info(
+            f"[RISK] {symbol} | Lot: {qty} adet | "
+            f"Giris: {price:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | "
+            f"Max harcama: {risk.capital * risk.max_position_pct:.2f}"
+        )
+
+        if qty == 0:
+            log_info(f"[RISK] {symbol} BUY atlanadi: hesaplanan lot 0 (fiyat cok yuksek).")
+            return
 
     if not SEND_ORDERS:
         return  # Guvenli mod — burada dur
@@ -124,15 +170,13 @@ def handle_signal(result):
             log_info(f"{symbol} icin zaten pozisyon var ({pos.qty} adet). BUY atlanadi.")
             return
 
-        # Basit lot hesabi: buying power'in %5'i ile al (max 10 adet)
-        account = broker.get_account()
-        if account is None:
-            log_error(f"{symbol} BUY: hesap bilgisi alinamadi.")
+        qty = risk.position_size(price)
+        if qty == 0:
+            log_info(f"{symbol} BUY atlanadi: hesaplanan lot 0.")
             return
 
-        max_spend = account["buying_power"] * 0.05
-        qty = max(1, min(10, int(max_spend / price)))
         broker.place_buy_order(symbol, qty)
+        _open_positions_count += 1
 
     elif action == "SELL":
         pos = broker.get_position(symbol)
@@ -140,6 +184,7 @@ def handle_signal(result):
             log_info(f"{symbol} icin acik pozisyon yok. SELL atlanadi.")
             return
         broker.place_sell_order(symbol, int(float(pos.qty)))
+        _open_positions_count = max(0, _open_positions_count - 1)
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +198,14 @@ def run():
     log_info(f"Semboller  : {', '.join(SYMBOLS)}")
     log_info(f"Emir modu  : {'AKTIF' if SEND_ORDERS else 'KAPALI (guvenli mod)'}")
     log_info(f"Aralik     : {LOOP_INTERVAL} saniye")
+    rs = risk.summary()
+    log_info(
+        f"[RISK] Sermaye: {rs['capital']:.0f} | "
+        f"Max pozisyon: %{rs['max_position_pct']*100:.0f} ({rs['max_position_value']:.0f}) | "
+        f"SL: %{rs['stop_loss_pct']*100:.0f} | TP: %{rs['take_profit_pct']*100:.0f} | "
+        f"Max acik pozisyon: {rs['max_open_positions']} | "
+        f"Gunluk kayip limiti: {rs['daily_loss_threshold']:.0f}"
+    )
     log_info("=" * 60)
 
     # Ilk baglanti kontrolu
@@ -195,6 +248,13 @@ def run_once():
     log_info("Paper trader SINGLE-RUN modu.")
     log_info(f"Semboller  : {', '.join(SYMBOLS)}")
     log_info(f"Emir modu  : {'AKTIF' if SEND_ORDERS else 'KAPALI (guvenli mod)'}")
+    rs = risk.summary()
+    log_info(
+        f"[RISK] Sermaye: {rs['capital']:.0f} | "
+        f"Max pozisyon: %{rs['max_position_pct']*100:.0f} ({rs['max_position_value']:.0f}) | "
+        f"SL: %{rs['stop_loss_pct']*100:.0f} | TP: %{rs['take_profit_pct']*100:.0f} | "
+        f"Max acik pozisyon: {rs['max_open_positions']}"
+    )
     log_info("=" * 60)
 
     account = broker.connect()
