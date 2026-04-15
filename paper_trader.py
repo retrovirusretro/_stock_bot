@@ -19,7 +19,7 @@ import broker
 
 # Guvenli mod: False = sadece sinyal logla, emir GONDERME
 # Emir gondermek icin True yap (Hafta 3 sonu)
-SEND_ORDERS = False
+SEND_ORDERS = True
 
 # Islem yapilacak semboller
 SYMBOLS = ["AAPL", "MSFT", "GLD", "USO", "SLV", "GDX"]
