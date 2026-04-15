@@ -199,15 +199,27 @@ class TestFilteredSignals:
     def test_filtered_has_fewer_or_equal_buys_than_raw(self):
         """Filtreli BUY sayisi ham BUY sayisindan az veya esit olmali."""
         df = self._make_full_df(list(range(50, 350)))
-        df = filtered_signals(df, 20, 50)
+        df = filtered_signals(df, 20, 50, use_sma200=True)
         raw_buys  = (df["signal_raw"] == 1).sum()
         filt_buys = (df["signal"]     == 1).sum()
         assert filt_buys <= raw_buys
 
     def test_sma200_filter_blocks_buy_in_downtrend(self):
-        """Fiyat SMA200 altindayken BUY olmamali."""
+        """use_sma200=True: fiyat SMA200 altindayken BUY olmamali."""
         df = self._make_full_df(list(range(50, 350)))
-        df = filtered_signals(df, 20, 50)
+        df = filtered_signals(df, 20, 50, use_sma200=True)
         if "sma200" in df.columns:
             below_200 = df[df["close"] < df["sma200"]]
             assert (below_200["signal"] != 1).all()
+
+    def test_crisis_mode_ignores_sma200(self):
+        """use_sma200=False: SMA200 altinda da BUY sinyali olabilmeli."""
+        # Yukari trend fiyat serisi: SMA200 altinda baslayip yukari cikiyor
+        prices = list(range(50, 350))
+        df = self._make_full_df(prices)
+        df_with    = filtered_signals(df.copy(), 20, 50, use_sma200=True)
+        df_without = filtered_signals(df.copy(), 20, 50, use_sma200=False)
+        # SMA200 filtresi olmadan daha fazla veya esit BUY olmali
+        buys_with    = (df_with["signal"]    == 1).sum()
+        buys_without = (df_without["signal"] == 1).sum()
+        assert buys_without >= buys_with

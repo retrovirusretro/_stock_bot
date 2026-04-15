@@ -23,7 +23,24 @@ import broker
 SEND_ORDERS = True
 
 # Islem yapilacak semboller
-SYMBOLS = ["AAPL", "MSFT", "GLD", "USO", "SLV", "GDX"]
+SYMBOLS = [
+    # Emtia ETF — trend takipte kanıtlanmıs
+    "GLD", "SLV", "USO", "GDX", "GDXJ", "XME", "COPX",
+    # Sektor ETF
+    "XLE", "XLB", "XLI",
+    # Genis piyasa ETF
+    "QQQ", "DIA", "IWM",
+    # Bireysel hisseler
+    "AAPL", "MSFT",
+]
+
+# Grup A: Kriz varliklari — SMA200 filtresi YOK
+# En buyuk hareketleri uzun vade ortalamasinin altindan basliyor
+# (enflasyon, kriz, USD dusus perioddlari)
+CRISIS_ASSETS = {"GLD", "SLV", "USO"}
+
+# Grup B: Geri kalan her sey — SMA200 filtresi VAR
+# Hisse, sektor ETF, genis piyasa ETF
 
 # Dongu aralik suresi (saniye)
 LOOP_INTERVAL = 60
@@ -69,7 +86,8 @@ def analyze_symbol(symbol):
         start, end = get_date_range()
         df = get_price_data(symbol, start, end)
         df = add_indicators(df, sma_periods=[SMA_FAST, SMA_SLOW, 200])
-        df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW)
+        use_sma200 = symbol not in CRISIS_ASSETS
+        df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW, use_sma200=use_sma200)
 
         last = df.iloc[-1]
 

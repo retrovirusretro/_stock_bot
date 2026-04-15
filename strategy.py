@@ -50,25 +50,29 @@ def sma_crossover_signals(df, fast=20, slow=50):
     return df
 
 
-def filtered_signals(df, fast=20, slow=50):
+def filtered_signals(df, fast=20, slow=50, use_sma200=True):
     """
-    Gelismis sinyal uretici — coklu filtre katmanlariyla yanlis sinyalleri eler.
+    Trend takip icin kanıtlanmıs minimal filtre seti.
 
-    Filtreler:
-        BUY icin (HEPSI saglanmali):
-            1. SMA{fast} > SMA{slow}           — trend yukari
-            2. Fiyat > SMA200                  — uzun vadeli trend yukari
-            3. RSI < 65                        — asiri alimda degil
-            4. MACD > MACD Signal              — momentum yukari
-            5. bb_pct < 0.8                    — Bollinger ust bantta degil
+    Iki mod:
+        use_sma200=True  (varsayilan) — Hisse, ETF, genis piyasa icin
+            BUY: SMA crossover VE fiyat > SMA200
+            SELL: crossover asagi VEYA RSI>75 VEYA fiyat < SMA200
 
-        SELL icin (HERHANGI BIRI yeterli):
-            1. SMA{fast} < SMA{slow}           — trend asagi
-            2. RSI > 70                        — asiri alim cikisi
-            3. Fiyat < SMA200                  — uzun vadeli trend kirildı
+        use_sma200=False — Kriz varliklari icin (GLD, SLV, USO)
+            En buyuk hareketleri SMA200 altından basladigi icin filtre uygulanmaz.
+            BUY: sadece SMA crossover
+            SELL: crossover asagi VEYA RSI>75
+
+    Args:
+        df:         OHLCV + indikatör DataFrame
+        fast:       Hizli SMA periyodu (varsayilan: 20)
+        slow:       Yavas SMA periyodu (varsayilan: 50)
+        use_sma200: True = SMA200 filtresi uygula (hisse/ETF)
+                    False = SMA200 filtresi atla (GLD/SLV/USO gibi kriz varliklari)
 
     Returns:
-        DataFrame: 'signal_raw' (orijinal crossover), 'signal' (filtreli) kolonlari
+        DataFrame: signal_raw, signal, position kolonlari
     """
     df = sma_crossover_signals(df, fast=fast, slow=slow)
     df = df.rename(columns={"signal": "signal_raw", "position": "position_raw"})
@@ -76,58 +80,46 @@ def filtered_signals(df, fast=20, slow=50):
     fast_col = f"sma{fast}"
     slow_col = f"sma{slow}"
 
-    # --- BUY kosullari ---
-    cond_trend_up   = df[fast_col] > df[slow_col]
+    # 1. Kisa vade trend: SMA crossover
+    cond_trend_up = df[fast_col] > df[slow_col]
 
-    # SMA200 varsa kullan
-    if "sma200" in df.columns:
-        cond_sma200 = df["close"] > df["sma200"]
+    # 2. Uzun vade trend yonu: SMA200 filtresi
+    # use_sma200=False ise kriz varliklari icin atlanir (GLD/SLV/USO)
+    if use_sma200 and "sma200" in df.columns:
+        cond_sma200_buy  = df["close"] > df["sma200"]
+        cond_sma200_sell = df["close"] < df["sma200"]
     else:
-        cond_sma200 = pd.Series(True, index=df.index)
+        cond_sma200_buy  = pd.Series(True,  index=df.index)
+        cond_sma200_sell = pd.Series(False, index=df.index)
 
-    # RSI varsa kullan
+    # Cikis: RSI > 75 (guclu asiri alim — GIRIS filtresi degil, CIKIS filtresi)
     if "rsi" in df.columns:
-        cond_rsi_buy  = df["rsi"] < 65
-        cond_rsi_sell = df["rsi"] > 70
+        cond_rsi_exit = df["rsi"] > 75
     else:
-        cond_rsi_buy  = pd.Series(True, index=df.index)
-        cond_rsi_sell = pd.Series(False, index=df.index)
-
-    # MACD varsa kullan
-    if "macd" in df.columns and "macd_signal" in df.columns:
-        cond_macd = df["macd"] > df["macd_signal"]
-    else:
-        cond_macd = pd.Series(True, index=df.index)
-
-    # Bollinger Bands varsa kullan
-    if "bb_pct" in df.columns:
-        cond_bb_buy = df["bb_pct"] < 0.8   # ust banda cok yakin degil
-    else:
-        cond_bb_buy = pd.Series(True, index=df.index)
+        cond_rsi_exit = pd.Series(False, index=df.index)
 
     # --- Sinyal uret ---
-    buy_qualified  = cond_trend_up & cond_sma200 & cond_rsi_buy & cond_macd & cond_bb_buy
-    sell_qualified = (~cond_trend_up) | cond_rsi_sell | (~cond_sma200)
+    buy_ok  = cond_trend_up & cond_sma200_buy
+    sell_ok = (~cond_trend_up) | cond_rsi_exit | cond_sma200_sell
 
     df["signal"] = 0
-    df.loc[buy_qualified,  "signal"] =  1
-    df.loc[sell_qualified, "signal"] = -1
+    df.loc[buy_ok,  "signal"] =  1
+    df.loc[sell_ok, "signal"] = -1
 
     df["position"] = df["signal"].diff()
 
-    # Kac sinyal filtrelendi?
-    raw_buys      = (df["signal_raw"] ==  1).sum()
-    raw_sells     = (df["signal_raw"] == -1).sum()
-    filt_buys     = (df["signal"]     ==  1).sum()
-    filt_sells    = (df["signal"]     == -1).sum()
-    buy_cross     = (df["position"]   ==  2).sum()
-    sell_cross    = (df["position"]   == -2).sum()
+    raw_buys  = (df["signal_raw"] ==  1).sum()
+    raw_sells = (df["signal_raw"] == -1).sum()
+    filt_buys = (df["signal"]     ==  1).sum()
+    buy_cross = (df["position"]   ==  2).sum()
+    sell_cross= (df["position"]   == -2).sum()
+    filtered  = raw_buys - filt_buys
 
+    mode = "SMA200+RSI" if use_sma200 else "Kriz(RSI-only)"
     print(
-        f"[STRATEGY] Filtreli SMA{fast}/SMA{slow} | "
-        f"Ham: {raw_buys}BUY/{raw_sells}SELL -> "
-        f"Filtreli: {filt_buys}BUY/{filt_sells}SELL | "
-        f"Crossover: {buy_cross}BUY, {sell_cross}SELL"
+        f"[STRATEGY] {mode} SMA{fast}/{slow} | "
+        f"Ham: {raw_buys}BUY -> Filtreli: {filt_buys}BUY ({filtered} engellendi) | "
+        f"Crossover: {buy_cross}BUY {sell_cross}SELL"
     )
     return df
 

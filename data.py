@@ -92,7 +92,16 @@ def add_bollinger_bands(df, window=20, window_dev=2):
 def add_indicators(df, sma_periods=None, rsi_period=14):
     """
     Tum indiktorleri tek seferde hesaplar.
-    SMA, RSI, ATR, MACD, Bollinger Bands.
+    SMA, RSI, ATR, ADX, MACD, Bollinger Bands.
+
+    Filtre hiyerarsisi (genel kabul gormüs):
+        1. SMA200  — uzun vadeli trend yonu (Stan Weinstein)
+        2. ADX>20  — trend gucu, ranging piyasayi eler (Wilder / Van Tharp)
+        3. RSI 40-68 — saglikli momentum zonu
+        ATR        — dinamik stop/TP icin volatilite olcumu
+
+    MACD ve BB dashboard/grafik icin hesaplanir ama
+    filtre olarak kullanilmaz (cift gecikme sorununu onler).
 
     Args:
         df:          OHLCV DataFrame
@@ -103,16 +112,24 @@ def add_indicators(df, sma_periods=None, rsi_period=14):
         sma_periods = [20, 50, 200]
     df = add_sma(df, sma_periods)
     df = add_rsi(df, rsi_period)
-    # ATR - dinamik stop-loss icin volatilite olcumu
+
+    # ATR - dinamik stop-loss icin
     df["atr"] = ta.volatility.average_true_range(
         df["high"], df["low"], df["close"], window=14
     )
     print("[DATA] ATR14 hesaplandi.")
-    # MACD - momentum filtresi
+
+    # ADX - trend gucu olcumu (en onemli filtre)
+    # ADX > 20: trend var, sinyal al | ADX < 20: ranging piyasa, sinyal atlat
+    df["adx"] = ta.trend.adx(df["high"], df["low"], df["close"], window=14)
+    print("[DATA] ADX14 hesaplandi.")
+
+    # MACD - dashboard/grafik icin (filtre degil)
     df["macd"]        = ta.trend.macd(df["close"])
     df["macd_signal"] = ta.trend.macd_signal(df["close"])
     print("[DATA] MACD hesaplandi.")
-    # Bollinger Bands - giris noktasi guclendiricisi
+
+    # Bollinger Bands - dashboard/grafik icin (filtre degil)
     df = add_bollinger_bands(df)
     return df
 
