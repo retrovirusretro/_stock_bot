@@ -70,9 +70,29 @@ def add_rsi(df, period=14):
     return df
 
 
+def add_bollinger_bands(df, window=20, window_dev=2):
+    """
+    Bollinger Bands ekler: ust bant, orta (SMA20), alt bant, yuzde konum.
+
+    Args:
+        df:         OHLCV DataFrame
+        window:     Periyot (varsayilan: 20)
+        window_dev: Standart sapma carpani (varsayilan: 2)
+    """
+    bb = ta.volatility.BollingerBands(df["close"], window=window, window_dev=window_dev)
+    df["bb_upper"] = bb.bollinger_hband()
+    df["bb_mid"]   = bb.bollinger_mavg()
+    df["bb_lower"] = bb.bollinger_lband()
+    # 0 = alt bantta, 1 = ust bantta, 0.5 = ortada
+    df["bb_pct"]   = bb.bollinger_pband()
+    print(f"[DATA] Bollinger Bands({window},{window_dev}) hesaplandi.")
+    return df
+
+
 def add_indicators(df, sma_periods=None, rsi_period=14):
     """
-    Tum indiktorleri tek seferde hesaplar. risk.py icin ATR de ekler.
+    Tum indiktorleri tek seferde hesaplar.
+    SMA, RSI, ATR, MACD, Bollinger Bands.
 
     Args:
         df:          OHLCV DataFrame
@@ -83,15 +103,17 @@ def add_indicators(df, sma_periods=None, rsi_period=14):
         sma_periods = [20, 50, 200]
     df = add_sma(df, sma_periods)
     df = add_rsi(df, rsi_period)
-    # ATR - volatilite olcumu, risk.py pozisyon boyutu icin
+    # ATR - dinamik stop-loss icin volatilite olcumu
     df["atr"] = ta.volatility.average_true_range(
         df["high"], df["low"], df["close"], window=14
     )
     print("[DATA] ATR14 hesaplandi.")
-    # MACD - ileride filtre olarak kullanilacak
+    # MACD - momentum filtresi
     df["macd"]        = ta.trend.macd(df["close"])
     df["macd_signal"] = ta.trend.macd_signal(df["close"])
     print("[DATA] MACD hesaplandi.")
+    # Bollinger Bands - giris noktasi guclendiricisi
+    df = add_bollinger_bands(df)
     return df
 
 

@@ -76,6 +76,27 @@ class RiskManager:
         """Take-profit fiyati: entry * (1 + take_profit_pct)"""
         return round(entry_price * (1.0 + self.take_profit_pct), 4)
 
+    def atr_stop_loss_price(self, entry_price, atr, multiplier=2.0):
+        """
+        ATR tabanli dinamik stop-loss.
+        Volatileye gore stop mesafesi degisir.
+        Formul: entry - (atr * multiplier)
+        Sakin piyasada dar stop, volatil piyasada genis stop.
+        """
+        if atr <= 0:
+            return self.stop_loss_price(entry_price)  # fallback: sabit %3
+        stop = entry_price - (atr * multiplier)
+        return round(max(stop, 0), 4)
+
+    def atr_take_profit_price(self, entry_price, atr, multiplier=4.0):
+        """
+        ATR tabanli dinamik take-profit.
+        Risk/Odul orani: 1:2 (stop 2xATR, TP 4xATR)
+        """
+        if atr <= 0:
+            return self.take_profit_price(entry_price)  # fallback: sabit %6
+        return round(entry_price + (atr * multiplier), 4)
+
     # ------------------------------------------------------------------
     # Sinir kontrolleri
     # ------------------------------------------------------------------

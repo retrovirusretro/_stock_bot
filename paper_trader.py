@@ -5,10 +5,11 @@ Sinyal uretir, loglar. SEND_ORDERS=False iken emir GONDERMEZ (guvenli mod).
 """
 
 import time
+import pandas as pd
 from datetime import datetime, timedelta
 
-from data     import get_price_data, add_sma, add_rsi
-from strategy import sma_crossover_signals
+from data     import get_price_data, add_indicators
+from strategy import filtered_signals
 from logger   import log_signal, log_info, log_error
 from risk     import RiskManager
 import broker
@@ -67,9 +68,8 @@ def analyze_symbol(symbol):
     try:
         start, end = get_date_range()
         df = get_price_data(symbol, start, end)
-        df = add_sma(df, [SMA_FAST, SMA_SLOW])
-        df = add_rsi(df)
-        df = sma_crossover_signals(df, fast=SMA_FAST, slow=SMA_SLOW)
+        df = add_indicators(df, sma_periods=[SMA_FAST, SMA_SLOW, 200])
+        df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW)
 
         last = df.iloc[-1]
 
@@ -95,6 +95,8 @@ def analyze_symbol(symbol):
         elif last_sell_date:
             action = "SELL"
 
+        atr = float(last["atr"]) if "atr" in last and not pd.isna(last["atr"]) else None
+
         return {
             "symbol": symbol,
             "action": action,
@@ -102,6 +104,7 @@ def analyze_symbol(symbol):
             "sma20":  sma20,
             "sma50":  sma50,
             "rsi":    rsi,
+            "atr":    atr,
         }
 
     except Exception as e:
@@ -123,6 +126,7 @@ def handle_signal(result):
     sma20  = result["sma20"]
     sma50  = result["sma50"]
     rsi    = result["rsi"]
+    atr    = result.get("atr")
 
     # Her durumda logla
     log_signal(symbol, action, price, sma20, sma50, rsi)
@@ -147,11 +151,18 @@ def handle_signal(result):
 
         # --- Risk: pozisyon buyutu ve fiyat seviyeleri ---
         qty = risk.position_size(price)
-        sl  = risk.stop_loss_price(price)
-        tp  = risk.take_profit_price(price)
+        # ATR varsa dinamik stop/TP, yoksa sabit oran
+        if atr:
+            sl = risk.atr_stop_loss_price(price, atr, multiplier=2.0)
+            tp = risk.atr_take_profit_price(price, atr, multiplier=4.0)
+            sl_type = f"ATR({atr:.2f}x2)"
+        else:
+            sl = risk.stop_loss_price(price)
+            tp = risk.take_profit_price(price)
+            sl_type = "sabit %3"
         log_info(
             f"[RISK] {symbol} | Lot: {qty} adet | "
-            f"Giris: {price:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | "
+            f"Giris: {price:.2f} | SL: {sl:.2f} ({sl_type}) | TP: {tp:.2f} | "
             f"Max harcama: {risk.capital * risk.max_position_pct:.2f}"
         )
 
