@@ -22,7 +22,7 @@ import broker
 SEND_ORDERS = False
 
 # Islem yapilacak semboller
-SYMBOLS = ["AAPL", "MSFT", "GLD", "USO"]
+SYMBOLS = ["AAPL", "MSFT", "GLD", "USO", "SLV", "GDX"]
 
 # Dongu aralik suresi (saniye)
 LOOP_INTERVAL = 60

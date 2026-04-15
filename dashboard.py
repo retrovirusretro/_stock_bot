@@ -7,7 +7,8 @@ Trading bot durumunu tarayicidan goruntulemeye yarar.
 import sys
 import os
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
+import pandas as pd
 
 # Proje klasorunu path'e ekle
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,7 @@ from broker import get_account, is_market_open
 
 app = Flask(__name__)
 
-SYMBOLS = ["AAPL", "MSFT", "GLD", "USO"]
+SYMBOLS = ["AAPL", "MSFT", "GLD", "USO", "SLV", "GDX"]
 
 
 def get_signal_label(position_series):
@@ -121,6 +122,61 @@ def index():
         market_err=market_err,
         now=now,
     )
+
+
+@app.route("/api/chart/<symbol>")
+def api_chart_data(symbol):
+    """Son 60 gunluk fiyat + SMA20 + SMA50 verisini LightweightCharts formatinda dondurur."""
+    try:
+        symbol = symbol.upper()
+        end   = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+        df = get_price_data(symbol, start, end)
+        df = add_indicators(df, sma_periods=[20, 50])
+        df = df.tail(60).copy()
+        df.index = df.index.strftime("%Y-%m-%d")
+
+        prices = []
+        sma20  = []
+        sma50  = []
+
+        for t, row in df.iterrows():
+            v = row["close"]
+            if pd.notna(v):
+                prices.append({"time": t, "value": round(float(v), 2)})
+            v20 = row.get("sma20", float("nan"))
+            if pd.notna(v20):
+                sma20.append({"time": t, "value": round(float(v20), 2)})
+            v50 = row.get("sma50", float("nan"))
+            if pd.notna(v50):
+                sma50.append({"time": t, "value": round(float(v50), 2)})
+
+        return jsonify({"prices": prices, "sma20": sma20, "sma50": sma50, "symbol": symbol})
+    except Exception as exc:
+        return jsonify({"error": str(exc), "symbol": symbol}), 500
+
+
+@app.route("/chart/<symbol>")
+def chart_data(symbol):
+    """Son 60 gunluk fiyat + SMA20 + SMA50 + RSI verisini JSON dondurur."""
+    try:
+        symbol = symbol.upper()
+        end   = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+        df = get_price_data(symbol, start, end)
+        df = add_indicators(df, sma_periods=[20, 50])
+        df = df.tail(60).copy()
+        df.index = df.index.strftime("%Y-%m-%d")
+        return jsonify({
+            "labels": list(df.index),
+            "close":  [round(float(x), 2) for x in df["close"]],
+            "sma20":  [round(float(x), 2) if not pd.isna(x) else None for x in df["sma20"]],
+            "sma50":  [round(float(x), 2) if not pd.isna(x) else None for x in df["sma50"]],
+            "rsi":    [round(float(x), 2) if not pd.isna(x) else None for x in df["rsi"]],
+            "symbol": symbol,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc), "symbol": symbol}), 500
 
 
 if __name__ == "__main__":

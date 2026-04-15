@@ -5,6 +5,8 @@
   <meta http-equiv="refresh" content="60">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Trading Bot Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -143,6 +145,102 @@
       font-size: 0.8rem;
     }
 
+    /* ---- Chart button ---- */
+    .btn-chart {
+      margin-top: 8px;
+      display: inline-block;
+      padding: 4px 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: #2a3550;
+      color: #90cdf4;
+      border: 1px solid #3a4a6a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn-chart:hover { background: #3a4a6a; }
+
+    /* ---- Modal overlay ---- */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal-box {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 14px;
+      padding: 24px;
+      width: 100%;
+      max-width: 860px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #e2e8f0;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      font-size: 1.3rem;
+      cursor: pointer;
+      color: #718096;
+      background: none;
+      border: none;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #e2e8f0; }
+
+    .chart-section {
+      margin-bottom: 20px;
+    }
+
+    .chart-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #718096;
+      margin-bottom: 8px;
+    }
+
+    .chart-container {
+      position: relative;
+      width: 100%;
+    }
+
+    .chart-loading {
+      text-align: center;
+      color: #718096;
+      font-size: 0.85rem;
+      padding: 40px 0;
+    }
+
+    /* RSI band labels */
+    .rsi-legend {
+      display: flex;
+      gap: 16px;
+      margin-top: 6px;
+      font-size: 0.68rem;
+    }
+    .rsi-legend span { display: flex; align-items: center; gap: 4px; }
+    .rsi-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
     /* ---- Legend ---- */
     .legend {
       margin-top: 32px;
@@ -258,6 +356,7 @@
           <th>RSI</th>
           <th>ATR</th>
           <th>Sinyal</th>
+          <th>Grafik</th>
         </tr>
       </thead>
       <tbody>
@@ -265,7 +364,7 @@
           {% if row.error %}
             <tr class="err-row">
               <td><span class="sym-name">{{ row.symbol }}</span></td>
-              <td colspan="6">Hata: {{ row.error }}</td>
+              <td colspan="7">Hata: {{ row.error }}</td>
             </tr>
           {% else %}
             <tr>
@@ -273,27 +372,27 @@
 
               <td>
                 <div class="metric-val">{{ row.price }}</div>
-                <div class="metric-hint">Son kapanış fiyatı</div>
+                <div class="metric-hint">Son kapanis fiyati</div>
               </td>
 
               <td>
                 <div class="metric-val">{{ row.sma20 }}</div>
-                <div class="metric-hint">20 günlük ort.<br>Kısa vadeli trend</div>
+                <div class="metric-hint">20 gunluk ort.<br>Kisa vadeli trend</div>
               </td>
 
               <td>
                 <div class="metric-val">{{ row.sma50 }}</div>
-                <div class="metric-hint">50 günlük ort.<br>Orta vadeli trend</div>
+                <div class="metric-hint">50 gunluk ort.<br>Orta vadeli trend</div>
               </td>
 
               <td>
                 <div class="metric-val">{{ row.rsi }}</div>
-                <div class="metric-hint">0-100 güç göstergesi<br>70+ asırı alım · 30- asırı satım</div>
+                <div class="metric-hint">0-100 guc gostergesi<br>70+ asiri alim - 30- asiri satim</div>
               </td>
 
               <td>
                 <div class="metric-val">{{ row.atr }}</div>
-                <div class="metric-hint">Günlük ort. hareket<br>Yüksek = volatil</div>
+                <div class="metric-hint">Gunluk ort. hareket<br>Yuksek = volatil</div>
               </td>
 
               <td>
@@ -301,18 +400,48 @@
                   <span class="badge badge-{{ row.signal }}">{{ row.signal }}</span>
                 </div>
                 {% if row.signal == "BUY" %}
-                  <div class="hint-BUY">SMA20 &uarr; SMA50 üstüne çıktı</div>
+                  <div class="hint-BUY">SMA20 &uarr; SMA50 ustune cikti</div>
                 {% elif row.signal == "SELL" %}
-                  <div class="hint-SELL">SMA20 &darr; SMA50 altına indi</div>
+                  <div class="hint-SELL">SMA20 &darr; SMA50 altina indi</div>
                 {% else %}
-                  <div class="hint-HOLD">Crossover yok · bekle</div>
+                  <div class="hint-HOLD">Crossover yok - bekle</div>
                 {% endif %}
+              </td>
+
+              <td>
+                <button class="btn-chart" onclick="openChart('{{ row.symbol }}')">
+                  Grafik Goster
+                </button>
               </td>
             </tr>
           {% endif %}
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <!-- ---- Mini Charts Grid ---- -->
+  <div style="margin-top:32px;">
+    <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:#718096;margin-bottom:14px;">
+      Canli Grafikler &mdash; Son 60 Gun (Kapanis / SMA20 / SMA50)
+    </div>
+    <div id="miniChartsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;">
+      {% for row in symbol_rows %}
+      <div class="card" id="minicard-{{ row.symbol }}" style="padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:700;font-size:0.95rem;letter-spacing:0.04em;">{{ row.symbol }}</span>
+          <span style="font-size:0.75rem;color:#718096;">{{ row.price }} USD</span>
+        </div>
+        <div id="lwchart-{{ row.symbol }}" style="height:200px;border-radius:6px;overflow:hidden;background:#0f1117;"></div>
+        <div id="lwlegend-{{ row.symbol }}" style="display:flex;gap:14px;margin-top:8px;font-size:0.68rem;color:#718096;">
+          <span><span style="display:inline-block;width:10px;height:2px;background:#4299e1;vertical-align:middle;margin-right:3px;"></span>Kapanis</span>
+          <span><span style="display:inline-block;width:10px;height:2px;background:#ed8936;vertical-align:middle;margin-right:3px;"></span>SMA20</span>
+          <span><span style="display:inline-block;width:10px;height:2px;background:#fc8181;vertical-align:middle;margin-right:3px;"></span>SMA50</span>
+        </div>
+        <div id="lwerr-{{ row.symbol }}" style="display:none;color:#fc8181;font-size:0.75rem;margin-top:6px;"></div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <!-- ---- Legend ---- -->
@@ -353,6 +482,357 @@
   <div class="footer">
     Trading Bot &mdash; Alpaca Paper Trading &mdash; Sayfa her 60 saniyede yenilenir
   </div>
+
+  <!-- ============================================================
+       MODAL: Chart popup
+  ============================================================ -->
+  <div class="modal-overlay" id="chartModal">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeChart()" title="Kapat">&times;</button>
+      <div class="modal-title" id="chartModalTitle">Grafik</div>
+
+      <!-- Price + SMA chart -->
+      <div class="chart-section">
+        <div class="chart-label">Kapanis Fiyati &amp; Hareketli Ortalamalar (60 gun)</div>
+        <div class="chart-container" style="height:300px;">
+          <canvas id="priceChart"></canvas>
+        </div>
+      </div>
+
+      <!-- RSI chart -->
+      <div class="chart-section">
+        <div class="chart-label">RSI (14)</div>
+        <div class="chart-container" style="height:160px;">
+          <canvas id="rsiChart"></canvas>
+        </div>
+        <div class="rsi-legend">
+          <span><span class="rsi-dot" style="background:#fc8181;"></span>Asiri alim (70+)</span>
+          <span><span class="rsi-dot" style="background:#68d391;"></span>Asiri satim (30-)</span>
+        </div>
+      </div>
+
+      <div class="chart-loading" id="chartLoading" style="display:none;">Veri yukleniyor...</div>
+      <div id="chartError" style="display:none;color:#fc8181;font-size:0.85rem;padding:12px 0;"></div>
+    </div>
+  </div>
+
+  <script>
+    /* ============================================================
+       MINI CHARTS — LightweightCharts (TradingView)
+    ============================================================ */
+    (function() {
+      var symbols = {{ symbol_rows | map(attribute='symbol') | list | tojson }};
+
+      function initMiniChart(symbol) {
+        var container = document.getElementById('lwchart-' + symbol);
+        var errEl     = document.getElementById('lwerr-' + symbol);
+        if (!container) return;
+
+        // graceful fallback: if LightweightCharts not loaded skip silently
+        if (typeof LightweightCharts === 'undefined') {
+          errEl.textContent = 'Grafik kutuphanesi yuklenemedi.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        var chart = LightweightCharts.createChart(container, {
+          width:  container.offsetWidth || 320,
+          height: 200,
+          layout: {
+            background: { color: '#0f1117' },
+            textColor:  '#718096',
+          },
+          grid: {
+            vertLines: { color: '#1a2035' },
+            horzLines: { color: '#1a2035' },
+          },
+          rightPriceScale: { borderColor: '#2d3748' },
+          timeScale: {
+            borderColor:     '#2d3748',
+            timeVisible:     true,
+            secondsVisible:  false,
+            tickMarkFormatter: function(time) {
+              var d = new Date(time * 1000);
+              return (d.getMonth()+1) + '/' + d.getDate();
+            }
+          },
+          crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+          handleScroll: false,
+          handleScale:  false,
+        });
+
+        var priceSeries = chart.addLineSeries({
+          color:       '#4299e1',
+          lineWidth:   2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        var sma20Series = chart.addLineSeries({
+          color:       '#ed8936',
+          lineWidth:   1,
+          lineStyle:   LightweightCharts.LineStyle.Dashed,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        var sma50Series = chart.addLineSeries({
+          color:       '#fc8181',
+          lineWidth:   1,
+          lineStyle:   LightweightCharts.LineStyle.Dashed,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+
+        fetch('/api/chart/' + encodeURIComponent(symbol))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error) {
+              errEl.textContent = 'Hata: ' + data.error;
+              errEl.style.display = 'block';
+              return;
+            }
+            if (data.prices && data.prices.length) priceSeries.setData(data.prices);
+            if (data.sma20  && data.sma20.length)  sma20Series.setData(data.sma20);
+            if (data.sma50  && data.sma50.length)  sma50Series.setData(data.sma50);
+            chart.timeScale().fitContent();
+          })
+          .catch(function(err) {
+            errEl.textContent = 'Veri alinamadi: ' + err;
+            errEl.style.display = 'block';
+          });
+
+        // responsive resize
+        var ro = new ResizeObserver(function() {
+          chart.applyOptions({ width: container.offsetWidth });
+        });
+        ro.observe(container);
+      }
+
+      // init all after DOM ready
+      document.addEventListener('DOMContentLoaded', function() {
+        symbols.forEach(function(sym) { initMiniChart(sym); });
+      });
+    })();
+
+    /* ============================================================
+       MODAL CHARTS — Chart.js (existing)
+    ============================================================ */
+    let priceChartInst = null;
+    let rsiChartInst   = null;
+
+    Chart.defaults.color = '#a0aec0';
+    Chart.defaults.borderColor = '#2d3748';
+
+    function openChart(symbol) {
+      const modal = document.getElementById('chartModal');
+      modal.classList.add('active');
+      document.getElementById('chartModalTitle').textContent = symbol + ' - Son 60 Gun';
+      document.getElementById('chartLoading').style.display = 'block';
+      document.getElementById('chartError').style.display   = 'none';
+
+      // destroy previous instances
+      if (priceChartInst) { priceChartInst.destroy(); priceChartInst = null; }
+      if (rsiChartInst)   { rsiChartInst.destroy();   rsiChartInst   = null; }
+
+      fetch('/chart/' + encodeURIComponent(symbol))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          document.getElementById('chartLoading').style.display = 'none';
+
+          if (data.error) {
+            document.getElementById('chartError').style.display = 'block';
+            document.getElementById('chartError').textContent   = 'Hata: ' + data.error;
+            return;
+          }
+
+          buildPriceChart(data);
+          buildRsiChart(data);
+        })
+        .catch(function(err) {
+          document.getElementById('chartLoading').style.display = 'none';
+          document.getElementById('chartError').style.display   = 'block';
+          document.getElementById('chartError').textContent     = 'Baglanti hatasi: ' + err;
+        });
+    }
+
+    function closeChart() {
+      document.getElementById('chartModal').classList.remove('active');
+    }
+
+    // Close on overlay click
+    document.getElementById('chartModal').addEventListener('click', function(e) {
+      if (e.target === this) closeChart();
+    });
+
+    function buildPriceChart(data) {
+      const ctx = document.getElementById('priceChart').getContext('2d');
+      priceChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: 'Kapanis',
+              data: data.close,
+              borderColor: '#4299e1',
+              backgroundColor: 'rgba(66,153,225,0.08)',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: true,
+              tension: 0.3,
+            },
+            {
+              label: 'SMA20',
+              data: data.sma20,
+              borderColor: '#ed8936',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              borderDash: [4, 3],
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+            },
+            {
+              label: 'SMA50',
+              data: data.sma50,
+              borderColor: '#fc8181',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              borderDash: [6, 3],
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 14, font: { size: 11 } } },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: {
+              ticks: { maxTicksLimit: 8, font: { size: 10 } },
+              grid: { color: 'rgba(45,55,72,0.8)' }
+            },
+            y: {
+              ticks: { font: { size: 10 } },
+              grid: { color: 'rgba(45,55,72,0.8)' }
+            }
+          }
+        }
+      });
+    }
+
+    function buildRsiChart(data) {
+      const ctx = document.getElementById('rsiChart').getContext('2d');
+
+      // Build colored background annotation via plugin-free approach:
+      // We paint overbought / oversold zones as datasets with fill
+      var ob70 = data.rsi.map(function() { return 70; });
+      var os30 = data.rsi.map(function() { return 30; });
+      var top  = data.rsi.map(function() { return 100; });
+      var bot  = data.rsi.map(function() { return 0; });
+
+      rsiChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            // overbought fill (70->100)
+            {
+              label: '_ob_top',
+              data: top,
+              borderColor: 'transparent',
+              backgroundColor: 'rgba(252,129,129,0.15)',
+              pointRadius: 0,
+              fill: '+1',
+              tension: 0,
+            },
+            {
+              label: '_ob_bot',
+              data: ob70,
+              borderColor: 'rgba(252,129,129,0.5)',
+              borderWidth: 1,
+              backgroundColor: 'transparent',
+              pointRadius: 0,
+              borderDash: [4, 3],
+              fill: false,
+              tension: 0,
+            },
+            // RSI line
+            {
+              label: 'RSI(14)',
+              data: data.rsi,
+              borderColor: '#90cdf4',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+            },
+            // oversold line
+            {
+              label: '_os_top',
+              data: os30,
+              borderColor: 'rgba(104,211,145,0.5)',
+              borderWidth: 1,
+              backgroundColor: 'transparent',
+              pointRadius: 0,
+              borderDash: [4, 3],
+              fill: '+1',
+            },
+            {
+              label: '_os_bot',
+              data: bot,
+              borderColor: 'transparent',
+              backgroundColor: 'rgba(104,211,145,0.15)',
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: { size: 11 },
+                filter: function(item) {
+                  return !item.text.startsWith('_');
+                }
+              }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              filter: function(item) {
+                return !item.dataset.label.startsWith('_');
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { maxTicksLimit: 8, font: { size: 10 } },
+              grid: { color: 'rgba(45,55,72,0.8)' }
+            },
+            y: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 20, font: { size: 10 } },
+              grid: { color: 'rgba(45,55,72,0.8)' }
+            }
+          }
+        }
+      });
+    }
+  </script>
 
 </body>
 </html>

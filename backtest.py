@@ -233,7 +233,7 @@ def print_result(res, label=""):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    SYMBOLS = ["AAPL", "MSFT", "SPY", "GLD", "USO"]
+    SYMBOLS = ["AAPL", "MSFT", "SPY", "GLD", "USO", "SLV", "GDX"]
     INITIAL_CASH = 10000.0
 
     # Tam donem
