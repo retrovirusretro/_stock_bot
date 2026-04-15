@@ -7,3 +7,4 @@ backtrader==1.9.78.123
 python-dotenv==1.0.1
 requests==2.32.3
 flask>=3.0.0
+pytest>=8.0.0

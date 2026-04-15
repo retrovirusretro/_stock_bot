@@ -14,12 +14,30 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data import get_price_data, add_indicators
-from strategy import sma_crossover_signals
+from strategy import sma_crossover_signals, filtered_signals
 from broker import get_account, is_market_open
 
-app = Flask(__name__)
+# Paper trader ile aynı grup mantığı
+CRISIS_ASSETS = {"GLD", "SLV", "USO"}
 
-SYMBOLS = ["AAPL", "MSFT", "GLD", "USO", "SLV", "GDX"]
+app = Flask(__name__)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.jinja_env.auto_reload = True
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+@app.after_request
+def no_cache(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+SYMBOLS = [
+    "GLD", "SLV", "USO", "GDX", "GDXJ", "XME", "COPX",
+    "XLE", "XLB", "XLI",
+    "QQQ", "DIA", "IWM",
+    "AAPL", "MSFT",
+]
 
 
 def get_signal_label(position_series):
@@ -47,7 +65,7 @@ def get_signal_label(position_series):
 def build_symbol_data():
     """Her sembol icin metrik sozlugu listesi olusturur."""
     end   = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=300)).strftime("%Y-%m-%d")
 
     rows = []
     for sym in SYMBOLS:
@@ -92,10 +110,8 @@ def build_symbol_data():
 
 @app.route("/")
 def index():
-    # --- Sembol verileri ---
-    symbol_rows = build_symbol_data()
-
-    # --- Hesap bilgisi ---
+    # Sayfa aninda yuklenir — sembol verileri JS ile async cekılir
+    # Sadece hesap + market durumu senkron (hizli)
     account   = None
     acct_err  = None
     try:
@@ -103,7 +119,6 @@ def index():
     except Exception as exc:
         acct_err = str(exc)
 
-    # --- Market durumu ---
     market_open = False
     market_err  = None
     try:
@@ -115,7 +130,7 @@ def index():
 
     return render_template(
         "index.html",
-        symbol_rows=symbol_rows,
+        symbols=SYMBOLS,
         account=account,
         acct_err=acct_err,
         market_open=market_open,
@@ -124,52 +139,101 @@ def index():
     )
 
 
+@app.route("/api/symbol/<symbol>")
+def api_symbol(symbol):
+    """Tek sembol icin metrik JSON dondurur (async tablo yukleme icin)."""
+    import time
+    symbol = symbol.upper()
+    last_exc = None
+    for attempt in range(3):
+        try:
+            end   = date.today().strftime("%Y-%m-%d")
+            start = (date.today() - timedelta(days=300)).strftime("%Y-%m-%d")
+            df = get_price_data(symbol, start, end)
+            df = add_indicators(df, sma_periods=[20, 50, 200])
+            use_sma200 = symbol not in CRISIS_ASSETS
+            df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
+            last   = df.iloc[-1]
+            signal = get_signal_label(df["position"])
+
+            def fmt(val, d=2):
+                try:
+                    return f"{float(val):.{d}f}"
+                except Exception:
+                    return "N/A"
+
+            return jsonify({
+                "symbol": symbol,
+                "price":  fmt(last["close"]),
+                "sma20":  fmt(last.get("sma20", float("nan"))),
+                "sma50":  fmt(last.get("sma50", float("nan"))),
+                "rsi":    fmt(last.get("rsi",   float("nan")), 1),
+                "atr":    fmt(last.get("atr",   float("nan")), 3),
+                "signal": signal,
+                "error":  None,
+            })
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(1)
+    return jsonify({"symbol": symbol, "error": str(last_exc)}), 500
+
+
 @app.route("/api/chart/<symbol>")
 def api_chart_data(symbol):
-    """Son 60 gunluk fiyat + SMA20 + SMA50 verisini LightweightCharts formatinda dondurur."""
-    try:
-        symbol = symbol.upper()
-        end   = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
-        df = get_price_data(symbol, start, end)
-        df = add_indicators(df, sma_periods=[20, 50])
-        df = df.tail(60).copy()
-        df.index = df.index.strftime("%Y-%m-%d")
+    """Son 60 gunluk fiyat + SMA20 + SMA50 verisini Chart.js formatinda dondurur."""
+    import time
+    symbol = symbol.upper()
+    last_exc = None
+    for attempt in range(3):
+        try:
+            end   = datetime.now().strftime("%Y-%m-%d")
+            start = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
+            df = get_price_data(symbol, start, end)
+            df = add_indicators(df, sma_periods=[20, 50])
+            df = df.tail(60).copy()
+            df.index = df.index.strftime("%Y-%m-%d")
 
-        prices = []
-        sma20  = []
-        sma50  = []
+            prices = []
+            sma20  = []
+            sma50  = []
 
-        for t, row in df.iterrows():
-            v = row["close"]
-            if pd.notna(v):
-                prices.append({"time": t, "value": round(float(v), 2)})
-            v20 = row.get("sma20", float("nan"))
-            if pd.notna(v20):
-                sma20.append({"time": t, "value": round(float(v20), 2)})
-            v50 = row.get("sma50", float("nan"))
-            if pd.notna(v50):
-                sma50.append({"time": t, "value": round(float(v50), 2)})
+            for t, row in df.iterrows():
+                v = row["close"]
+                if pd.notna(v):
+                    prices.append({"time": t, "value": round(float(v), 2)})
+                v20 = row.get("sma20", float("nan"))
+                if pd.notna(v20):
+                    sma20.append({"time": t, "value": round(float(v20), 2)})
+                v50 = row.get("sma50", float("nan"))
+                if pd.notna(v50):
+                    sma50.append({"time": t, "value": round(float(v50), 2)})
 
-        return jsonify({"prices": prices, "sma20": sma20, "sma50": sma50, "symbol": symbol})
-    except Exception as exc:
-        return jsonify({"error": str(exc), "symbol": symbol}), 500
+            return jsonify({"prices": prices, "sma20": sma20, "sma50": sma50, "symbol": symbol})
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(1)
+    return jsonify({"error": str(last_exc), "symbol": symbol}), 500
 
 
 @app.route("/chart/<symbol>")
 def chart_data(symbol):
     """Son 60 gunluk fiyat + SMA20 + SMA50 + RSI + BUY/SELL sinyalleri JSON dondurur."""
-    try:
-        symbol = symbol.upper()
+    import time
+    symbol = symbol.upper()
+    last_exc = None
+    for attempt in range(3):
+      try:
         end   = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
         df = get_price_data(symbol, start, end)
-        df = add_indicators(df, sma_periods=[20, 50])
-        df = sma_crossover_signals(df, fast=20, slow=50)
+        df = add_indicators(df, sma_periods=[20, 50, 200])
+        use_sma200 = symbol not in CRISIS_ASSETS
+        df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
         df = df.tail(60).copy()
         df.index = df.index.strftime("%Y-%m-%d")
 
-        # BUY/SELL sinyal noktalari: {x: tarih, y: fiyat}
         buy_signals  = []
         sell_signals = []
         for t, row in df.iterrows():
@@ -190,8 +254,11 @@ def chart_data(symbol):
             "sell_signals": sell_signals,
             "symbol":       symbol,
         })
-    except Exception as exc:
-        return jsonify({"error": str(exc), "symbol": symbol}), 500
+      except Exception as exc:
+        last_exc = exc
+        if attempt < 2:
+            time.sleep(1)
+    return jsonify({"error": str(last_exc), "symbol": symbol}), 500
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ SMA_FAST = 20
 SMA_SLOW = 50
 
 # Veri penceresi: son N gun (SMA50 icin en az 60 gun lazim)
-DATA_DAYS = 120
+DATA_DAYS = 300  # SMA200 icin en az 250 is gunu gerekli
 
 # ---------------------------------------------------------------------------
 # Risk Yoneticisi

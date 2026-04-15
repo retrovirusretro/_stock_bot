@@ -2,11 +2,13 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta http-equiv="refresh" content="60">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Bot Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <title>Trading Bot Dashboard v3</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -359,62 +361,15 @@
           <th>Grafik</th>
         </tr>
       </thead>
-      <tbody>
-        {% for row in symbol_rows %}
-          {% if row.error %}
-            <tr class="err-row">
-              <td><span class="sym-name">{{ row.symbol }}</span></td>
-              <td colspan="7">Hata: {{ row.error }}</td>
-            </tr>
-          {% else %}
-            <tr>
-              <td><span class="sym-name">{{ row.symbol }}</span></td>
-
-              <td>
-                <div class="metric-val">{{ row.price }}</div>
-                <div class="metric-hint">Son kapanis fiyati</div>
-              </td>
-
-              <td>
-                <div class="metric-val">{{ row.sma20 }}</div>
-                <div class="metric-hint">20 gunluk ort.<br>Kisa vadeli trend</div>
-              </td>
-
-              <td>
-                <div class="metric-val">{{ row.sma50 }}</div>
-                <div class="metric-hint">50 gunluk ort.<br>Orta vadeli trend</div>
-              </td>
-
-              <td>
-                <div class="metric-val">{{ row.rsi }}</div>
-                <div class="metric-hint">0-100 guc gostergesi<br>70+ asiri alim - 30- asiri satim</div>
-              </td>
-
-              <td>
-                <div class="metric-val">{{ row.atr }}</div>
-                <div class="metric-hint">Gunluk ort. hareket<br>Yuksek = volatil</div>
-              </td>
-
-              <td>
-                <div>
-                  <span class="badge badge-{{ row.signal }}">{{ row.signal }}</span>
-                </div>
-                {% if row.signal == "BUY" %}
-                  <div class="hint-BUY">SMA20 &uarr; SMA50 ustune cikti</div>
-                {% elif row.signal == "SELL" %}
-                  <div class="hint-SELL">SMA20 &darr; SMA50 altina indi</div>
-                {% else %}
-                  <div class="hint-HOLD">Crossover yok - bekle</div>
-                {% endif %}
-              </td>
-
-              <td>
-                <button class="btn-chart" onclick="openChart('{{ row.symbol }}')">
-                  Grafik Goster
-                </button>
-              </td>
-            </tr>
-          {% endif %}
+      <tbody id="symbolTableBody">
+        {% for sym in symbols %}
+        <tr id="row-{{ sym }}">
+          <td><span class="sym-name">{{ sym }}</span></td>
+          <td colspan="6"><span style="color:#718096;font-size:0.8rem;">Yukleniyor...</span></td>
+          <td>
+            <button class="btn-chart" onclick="openChart('{{ sym }}')">Grafik Goster</button>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -426,19 +381,24 @@
       Canli Grafikler &mdash; Son 60 Gun (Kapanis / SMA20 / SMA50)
     </div>
     <div id="miniChartsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;">
-      {% for row in symbol_rows %}
-      <div class="card" id="minicard-{{ row.symbol }}" style="padding:14px 16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-weight:700;font-size:0.95rem;letter-spacing:0.04em;">{{ row.symbol }}</span>
-          <span style="font-size:0.75rem;color:#718096;">{{ row.price }} USD</span>
+      {% for sym in symbols %}
+      <div class="card" style="padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div>
+            <span style="font-weight:700;font-size:0.95rem;letter-spacing:0.04em;">{{ sym }}</span>
+            <div id="minidesc-{{ sym }}" style="font-size:0.67rem;color:#718096;margin-top:2px;max-width:220px;line-height:1.35;"></div>
+          </div>
+          <span id="miniprice-{{ sym }}" style="font-size:0.75rem;color:#718096;white-space:nowrap;margin-left:8px;">...</span>
         </div>
-        <div id="lwchart-{{ row.symbol }}" style="height:200px;border-radius:6px;overflow:hidden;background:#0f1117;"></div>
-        <div id="lwlegend-{{ row.symbol }}" style="display:flex;gap:14px;margin-top:8px;font-size:0.68rem;color:#718096;">
+        <div style="position:relative;height:180px;">
+          <canvas id="mini-{{ sym }}"></canvas>
+        </div>
+        <div style="display:flex;gap:14px;margin-top:8px;font-size:0.68rem;color:#718096;">
           <span><span style="display:inline-block;width:10px;height:2px;background:#4299e1;vertical-align:middle;margin-right:3px;"></span>Kapanis</span>
           <span><span style="display:inline-block;width:10px;height:2px;background:#ed8936;vertical-align:middle;margin-right:3px;"></span>SMA20</span>
           <span><span style="display:inline-block;width:10px;height:2px;background:#fc8181;vertical-align:middle;margin-right:3px;"></span>SMA50</span>
         </div>
-        <div id="lwerr-{{ row.symbol }}" style="display:none;color:#fc8181;font-size:0.75rem;margin-top:6px;"></div>
+        <div id="minierr-{{ sym }}" style="display:none;color:#fc8181;font-size:0.75rem;margin-top:6px;"></div>
       </div>
       {% endfor %}
     </div>
@@ -518,71 +478,103 @@
 
   <script>
     /* ============================================================
-       MINI CHARTS — LightweightCharts (TradingView)
+       TABLO SATIRLARINI ASYNC DOLDUR
     ============================================================ */
     (function() {
-      var symbols = {{ symbol_rows | map(attribute='symbol') | list | tojson }};
+      var symbols = {{ symbols | tojson }};
+
+      var symbolDesc = {
+        "GLD":  "Altın ETF — SPDR Gold Shares. Fiziksel altının fiyatını takip eder.",
+        "SLV":  "Gümüş ETF — iShares Silver Trust. Fiziksel gümüşü temsil eder.",
+        "USO":  "Petrol ETF — United States Oil Fund. Ham petrol vadeli işlemlerini takip eder.",
+        "GDX":  "Altın madencileri ETF — VanEck Gold Miners. Büyük altın şirketleri.",
+        "GDXJ": "Küçük altın madencileri ETF — VanEck Junior Gold Miners. Daha volatil.",
+        "XME":  "Metal & Madencilik ETF — SPDR S&P Metals & Mining. Çelik, bakır, kömür.",
+        "COPX": "Bakır madencileri ETF — Global X Copper Miners. Saf bakır maruziyeti.",
+        "XLE":  "Enerji sektörü ETF — SPDR Energy Select. Exxon, Chevron vb.",
+        "XLB":  "Malzeme sektörü ETF — SPDR Materials Select. Kimya, ambalaj, metal.",
+        "XLI":  "Sanayi sektörü ETF — SPDR Industrials Select. Uçak, savunma, taşımacılık.",
+        "QQQ":  "Nasdaq-100 ETF — Invesco QQQ. Teknoloji ağırlıklı 100 büyük hisse.",
+        "DIA":  "Dow Jones ETF — SPDR Dow Jones Industrial Average. 30 büyük ABD şirketi.",
+        "IWM":  "Küçük şirketler ETF — iShares Russell 2000. 2000 küçük-orta ölçekli ABD hissesi.",
+        "AAPL": "Apple — iPhone, Mac, hizmetler. Dünyanın en değerli şirketi.",
+        "MSFT": "Microsoft — Windows, Azure bulut, Office 365, yapay zeka (OpenAI).",
+      };
+
+      function signalBadge(signal) {
+        var hints = {
+          BUY:  '<div class="hint-BUY">SMA20 &uarr; SMA50 ustune cikti</div>',
+          SELL: '<div class="hint-SELL">SMA20 &darr; SMA50 altina indi</div>',
+          HOLD: '<div class="hint-HOLD">Crossover yok - bekle</div>',
+        };
+        return '<span class="badge badge-' + signal + '">' + signal + '</span>'
+               + (hints[signal] || '');
+      }
+
+      function loadRow(sym) {
+        fetch('/api/symbol/' + encodeURIComponent(sym))
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            var row = document.getElementById('row-' + sym);
+            if (!row) return;
+            if (d.error) {
+              var desc = symbolDesc[sym] || '';
+              row.innerHTML = '<td><span class="sym-name">' + sym + '</span>' + (desc ? '<div class="metric-hint" style="max-width:200px;">' + desc + '</div>' : '') + '</td>'
+                + '<td colspan="6" style="color:#fc8181;font-size:0.8rem;">Hata: ' + d.error + '</td>'
+                + '<td><button class="btn-chart" onclick="openChart(\'' + sym + '\')">Grafik Goster</button></td>';
+              return;
+            }
+            // fiyat etiketini mini chart'ta da guncelle
+            var mp = document.getElementById('miniprice-' + sym);
+            if (mp) mp.textContent = d.price + ' USD';
+
+            var desc = symbolDesc[sym] || '';
+            row.innerHTML =
+              '<td><span class="sym-name">' + sym + '</span>' + (desc ? '<div class="metric-hint" style="max-width:200px;">' + desc + '</div>' : '') + '</td>'
+              + '<td><div class="metric-val">' + d.price + '</div><div class="metric-hint">Son kapanis fiyati</div></td>'
+              + '<td><div class="metric-val">' + d.sma20 + '</div><div class="metric-hint">20 gunluk ort.<br>Kisa vadeli trend</div></td>'
+              + '<td><div class="metric-val">' + d.sma50 + '</div><div class="metric-hint">50 gunluk ort.<br>Orta vadeli trend</div></td>'
+              + '<td><div class="metric-val">' + d.rsi  + '</div><div class="metric-hint">0-100 guc gostergesi<br>70+ asiri alim - 30- asiri satim</div></td>'
+              + '<td><div class="metric-val">' + d.atr  + '</div><div class="metric-hint">Gunluk ort. hareket<br>Yuksek = volatil</div></td>'
+              + '<td>' + signalBadge(d.signal) + '</td>'
+              + '<td><button class="btn-chart" onclick="openChart(\'' + sym + '\')">Grafik Goster</button></td>';
+          })
+          .catch(function(e) {
+            var row = document.getElementById('row-' + sym);
+            if (row) row.cells[1].textContent = 'Baglanti hatasi';
+          });
+      }
+
+      // Sembolleri sırayla degil, paralel cek
+      symbols.forEach(function(sym) { loadRow(sym); });
+
+      // 60 saniyede bir yenile
+      setInterval(function() {
+        symbols.forEach(function(sym) { loadRow(sym); });
+      }, 60000);
+    })();
+
+    /* ============================================================
+       MINI CHARTS — Chart.js
+    ============================================================ */
+    (function() {
+      var symbols = {{ symbols | tojson }};
+
+      // Mini chart aciklamalarini doldur
+      var descMap = typeof symbolDesc !== 'undefined' ? symbolDesc : {};
+      symbols.forEach(function(sym) {
+        var el = document.getElementById('minidesc-' + sym);
+        if (el && descMap[sym]) el.textContent = descMap[sym];
+      });
+
+      var miniChartInstances = {};
 
       function initMiniChart(symbol) {
-        var container = document.getElementById('lwchart-' + symbol);
-        var errEl     = document.getElementById('lwerr-' + symbol);
-        if (!container) return;
+        var canvas = document.getElementById('mini-' + symbol);
+        var errEl  = document.getElementById('minierr-' + symbol);
+        if (!canvas) return;
 
-        // graceful fallback: if LightweightCharts not loaded skip silently
-        if (typeof LightweightCharts === 'undefined') {
-          errEl.textContent = 'Grafik kutuphanesi yuklenemedi.';
-          errEl.style.display = 'block';
-          return;
-        }
-
-        var chart = LightweightCharts.createChart(container, {
-          width:  container.offsetWidth || 320,
-          height: 200,
-          layout: {
-            background: { color: '#0f1117' },
-            textColor:  '#718096',
-          },
-          grid: {
-            vertLines: { color: '#1a2035' },
-            horzLines: { color: '#1a2035' },
-          },
-          rightPriceScale: { borderColor: '#2d3748' },
-          timeScale: {
-            borderColor:     '#2d3748',
-            timeVisible:     true,
-            secondsVisible:  false,
-            tickMarkFormatter: function(time) {
-              var d = new Date(time * 1000);
-              return (d.getMonth()+1) + '/' + d.getDate();
-            }
-          },
-          crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-          handleScroll: false,
-          handleScale:  false,
-        });
-
-        var priceSeries = chart.addLineSeries({
-          color:       '#4299e1',
-          lineWidth:   2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
-        var sma20Series = chart.addLineSeries({
-          color:       '#ed8936',
-          lineWidth:   1,
-          lineStyle:   LightweightCharts.LineStyle.Dashed,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
-        var sma50Series = chart.addLineSeries({
-          color:       '#fc8181',
-          lineWidth:   1,
-          lineStyle:   LightweightCharts.LineStyle.Dashed,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
-
-        fetch('/api/chart/' + encodeURIComponent(symbol))
+        fetch('/chart/' + encodeURIComponent(symbol))
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.error) {
@@ -590,27 +582,91 @@
               errEl.style.display = 'block';
               return;
             }
-            if (data.prices && data.prices.length) priceSeries.setData(data.prices);
-            if (data.sma20  && data.sma20.length)  sma20Series.setData(data.sma20);
-            if (data.sma50  && data.sma50.length)  sma50Series.setData(data.sma50);
-            chart.timeScale().fitContent();
+
+            // Show only every Nth label to avoid crowding
+            var labels = data.labels.map(function(l, i) {
+              return i % 10 === 0 ? l.slice(5) : '';  // MM-DD
+            });
+
+            if (miniChartInstances[symbol]) {
+              miniChartInstances[symbol].destroy();
+            }
+
+            miniChartInstances[symbol] = new Chart(canvas.getContext('2d'), {
+              type: 'line',
+              data: {
+                labels: data.labels,
+                datasets: [
+                  {
+                    label: 'Kapanis',
+                    data: data.close,
+                    borderColor: '#4299e1',
+                    backgroundColor: 'rgba(66,153,225,0.06)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.3,
+                  },
+                  {
+                    label: 'SMA20',
+                    data: data.sma20,
+                    borderColor: '#ed8936',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    borderDash: [4, 3],
+                    fill: false,
+                    tension: 0.3,
+                    spanGaps: true,
+                  },
+                  {
+                    label: 'SMA50',
+                    data: data.sma50,
+                    borderColor: '#fc8181',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    borderDash: [6, 3],
+                    fill: false,
+                    tension: 0.3,
+                    spanGaps: true,
+                  },
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                  legend: { display: false },
+                  tooltip: { enabled: false },
+                },
+                scales: {
+                  x: {
+                    ticks: {
+                      maxTicksLimit: 6,
+                      font: { size: 9 },
+                      color: '#718096',
+                      callback: function(val, i) {
+                        return data.labels[i] ? data.labels[i].slice(5) : '';
+                      }
+                    },
+                    grid: { color: 'rgba(45,55,72,0.5)' }
+                  },
+                  y: {
+                    ticks: { font: { size: 9 }, color: '#718096', maxTicksLimit: 4 },
+                    grid: { color: 'rgba(45,55,72,0.5)' }
+                  }
+                }
+              }
+            });
           })
           .catch(function(err) {
             errEl.textContent = 'Veri alinamadi: ' + err;
             errEl.style.display = 'block';
           });
-
-        // responsive resize
-        var ro = new ResizeObserver(function() {
-          chart.applyOptions({ width: container.offsetWidth });
-        });
-        ro.observe(container);
       }
 
-      // init all after DOM ready
-      document.addEventListener('DOMContentLoaded', function() {
-        symbols.forEach(function(sym) { initMiniChart(sym); });
-      });
+      // Script body sonunda calistigi icin DOM hazir, direkt cagir
+      symbols.forEach(function(sym) { initMiniChart(sym); });
     })();
 
     /* ============================================================

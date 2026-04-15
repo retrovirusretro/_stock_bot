@@ -17,7 +17,12 @@ from data import get_price_data, add_sma, add_rsi
 from strategy import sma_crossover_signals
 from broker import get_account, get_position, is_market_open, get_latest_price
 
-SYMBOLS   = ["AAPL", "MSFT", "GLD", "USO"]
+SYMBOLS = [
+    "GLD", "SLV", "USO", "GDX", "GDXJ", "XME", "COPX",
+    "XLE", "XLB", "XLI",
+    "QQQ", "DIA", "IWM",
+    "AAPL", "MSFT",
+]
 REFRESH   = 60  # saniye
 
 
