@@ -158,22 +158,37 @@ def api_chart_data(symbol):
 
 @app.route("/chart/<symbol>")
 def chart_data(symbol):
-    """Son 60 gunluk fiyat + SMA20 + SMA50 + RSI verisini JSON dondurur."""
+    """Son 60 gunluk fiyat + SMA20 + SMA50 + RSI + BUY/SELL sinyalleri JSON dondurur."""
     try:
         symbol = symbol.upper()
         end   = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
         df = get_price_data(symbol, start, end)
         df = add_indicators(df, sma_periods=[20, 50])
+        df = sma_crossover_signals(df, fast=20, slow=50)
         df = df.tail(60).copy()
         df.index = df.index.strftime("%Y-%m-%d")
+
+        # BUY/SELL sinyal noktalari: {x: tarih, y: fiyat}
+        buy_signals  = []
+        sell_signals = []
+        for t, row in df.iterrows():
+            pos = row.get("position", 0)
+            if pd.notna(pos):
+                if pos == 2.0:
+                    buy_signals.append({"x": t, "y": round(float(row["close"]), 2)})
+                elif pos == -2.0:
+                    sell_signals.append({"x": t, "y": round(float(row["close"]), 2)})
+
         return jsonify({
-            "labels": list(df.index),
-            "close":  [round(float(x), 2) for x in df["close"]],
-            "sma20":  [round(float(x), 2) if not pd.isna(x) else None for x in df["sma20"]],
-            "sma50":  [round(float(x), 2) if not pd.isna(x) else None for x in df["sma50"]],
-            "rsi":    [round(float(x), 2) if not pd.isna(x) else None for x in df["rsi"]],
-            "symbol": symbol,
+            "labels":       list(df.index),
+            "close":        [round(float(x), 2) for x in df["close"]],
+            "sma20":        [round(float(x), 2) if not pd.isna(x) else None for x in df["sma20"]],
+            "sma50":        [round(float(x), 2) if not pd.isna(x) else None for x in df["sma50"]],
+            "rsi":          [round(float(x), 2) if not pd.isna(x) else None for x in df["rsi"]],
+            "buy_signals":  buy_signals,
+            "sell_signals": sell_signals,
+            "symbol":       symbol,
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "symbol": symbol}), 500
