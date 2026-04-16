@@ -16,6 +16,11 @@ from alpaca.data.requests import StockLatestTradeRequest
 from logger import log_info, log_error, log_order
 
 # ---------------------------------------------------------------------------
+# Sentinel: get_position() API hatasi durumunda None ile karistirmamak icin
+# ---------------------------------------------------------------------------
+POSITION_UNKNOWN = object()
+
+# ---------------------------------------------------------------------------
 # .env yukle
 # ---------------------------------------------------------------------------
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -79,15 +84,38 @@ def get_account():
 
 
 def get_position(symbol):
-    """Acik pozisyon varsa dondurur, yoksa None."""
+    """
+    Acik pozisyon varsa dondurur.
+    Pozisyon yoksa          -> None
+    API/network hatasi ise  -> POSITION_UNKNOWN (sentinel)
+
+    KRITIK: Hata durumunda None degil POSITION_UNKNOWN dondurmak,
+    duplicate order'i onler. handle_signal bu durumda BUY'u atlamalı.
+    """
     try:
         return _get_trading_client().get_open_position(symbol)
     except Exception as e:
         msg = str(e).lower()
         if "position does not exist" in msg or "404" in msg:
-            return None
+            return None  # gercekten pozisyon yok
         log_error(f"get_position({symbol}) hatasi: {e}")
-        return None
+        return POSITION_UNKNOWN  # bilinmiyor — guvenli tarafta kal
+
+
+def get_open_positions_count():
+    """
+    Alpaca'daki tum acik pozisyon sayisini dondurur.
+    Bot yeniden basladiginda _open_positions_count'u gercekle senkronize eder.
+    Hata durumunda 0 dondurur (muhafazakar: daha az emir gonderilebilir).
+    """
+    try:
+        positions = _get_trading_client().get_all_positions()
+        count = len(positions)
+        log_info(f"Alpaca acik pozisyonlar: {count} adet ({[p.symbol for p in positions]})")
+        return count
+    except Exception as e:
+        log_error(f"get_open_positions_count hatasi: {e}")
+        return 0
 
 
 def place_buy_order(symbol, qty):

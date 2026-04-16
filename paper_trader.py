@@ -214,6 +214,15 @@ def handle_signal(result):
 
     if action == "BUY":
         pos = broker.get_position(symbol)
+
+        # API hatasi: pozisyon durumu bilinmiyor -> guvenli tarafta kal, BUY atla
+        if pos is broker.POSITION_UNKNOWN:
+            log_error(
+                f"{symbol} BUY atlanadi: pozisyon sorgulanamadi (API hatasi). "
+                f"Duplicate order riski onlendi."
+            )
+            return
+
         if pos is not None:
             log_info(f"{symbol} icin zaten pozisyon var ({pos.qty} adet). BUY atlanadi.")
             return
@@ -221,6 +230,15 @@ def handle_signal(result):
         qty = risk.position_size(price)
         if qty == 0:
             log_info(f"{symbol} BUY atlanadi: hesaplanan lot 0.")
+            return
+
+        # Sanity cap: fiyat verisi bozuksa qty patlayabilir (orn: price=5 -> qty=1000)
+        QTY_MAX = 200
+        if qty > QTY_MAX:
+            log_error(
+                f"{symbol} BUY atlanadi: anormal lot hesabi "
+                f"(qty={qty}, fiyat={price:.2f}). Veri sorunu olmali."
+            )
             return
 
         broker.place_buy_order(symbol, qty)
@@ -261,6 +279,11 @@ def run():
     if account is None:
         log_error("Alpaca baglantisi kurulamadi. Cikiliyor.")
         return
+
+    # Alpaca'daki gercek acik pozisyon sayisini al
+    # (bot yeniden baslarsa _open_positions_count sifirlanir — senkronize et)
+    global _open_positions_count
+    _open_positions_count = broker.get_open_positions_count()
 
     iteration = 0
 
@@ -309,6 +332,9 @@ def run_once():
     if account is None:
         log_error("Alpaca baglantisi kurulamadi.")
         return False
+
+    global _open_positions_count
+    _open_positions_count = broker.get_open_positions_count()
 
     market_open = broker.is_market_open()
     log_info(f"Market durumu: {'ACIK' if market_open else 'KAPALI'}")
