@@ -131,6 +131,19 @@
     .badge-SELL { background: #4a1a1a; color: #fc8181; border: 1px solid #742a2a; }
     .badge-HOLD { background: #2d3748; color: #a0aec0; border: 1px solid #4a5568; }
 
+    .badge-strategy {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-left: 5px;
+      vertical-align: middle;
+    }
+    .badge-strategy-SMA { background: #1a2e4a; color: #90cdf4; border: 1px solid #2b4a7a; }
+    .badge-strategy-ST  { background: #2a1a4a; color: #b794f4; border: 1px solid #4a2a7a; }
+
     .hint-BUY  { font-size: 0.68rem; color: #68d391; margin-top: 3px; }
     .hint-SELL { font-size: 0.68rem; color: #fc8181; margin-top: 3px; }
     .hint-HOLD { font-size: 0.68rem; color: #718096; margin-top: 3px; }
@@ -517,14 +530,26 @@
         "MSFT": "Microsoft — Windows, Azure bulut, Office 365, yapay zeka (OpenAI).",
       };
 
-      function signalBadge(signal) {
+      function signalBadge(signal, strategyType) {
+        var st = strategyType || 'SMA';
         var hints = {
-          BUY:  '<div class="hint-BUY">SMA20 &uarr; SMA50 ustune cikti</div>',
-          SELL: '<div class="hint-SELL">SMA20 &darr; SMA50 altina indi</div>',
-          HOLD: '<div class="hint-HOLD">Crossover yok - bekle</div>',
+          BUY:  {
+            SMA: '<div class="hint-BUY">SMA20 &uarr; SMA50 ustune cikti</div>',
+            ST:  '<div class="hint-BUY">Supertrend yukselis trendi basladi</div>',
+          },
+          SELL: {
+            SMA: '<div class="hint-SELL">SMA20 &darr; SMA50 altina indi</div>',
+            ST:  '<div class="hint-SELL">Supertrend dusus trendi basladi</div>',
+          },
+          HOLD: {
+            SMA: '<div class="hint-HOLD">Crossover yok - bekle</div>',
+            ST:  '<div class="hint-HOLD">Trend degisimi yok - bekle</div>',
+          },
         };
+        var stratBadge = '<span class="badge-strategy badge-strategy-' + st + '">' + st + '</span>';
+        var hint = (hints[signal] && hints[signal][st]) ? hints[signal][st] : '';
         return '<span class="badge badge-' + signal + '">' + signal + '</span>'
-               + (hints[signal] || '');
+               + stratBadge + hint;
       }
 
       function loadRow(sym) {
@@ -552,7 +577,7 @@
               + '<td><div class="metric-val">' + d.sma50 + '</div><div class="metric-hint">50 gunluk ort.<br>Orta vadeli trend</div></td>'
               + '<td><div class="metric-val">' + d.rsi  + '</div><div class="metric-hint">0-100 guc gostergesi<br>70+ asiri alim - 30- asiri satim</div></td>'
               + '<td><div class="metric-val">' + d.atr  + '</div><div class="metric-hint">Gunluk ort. hareket<br>Yuksek = volatil</div></td>'
-              + '<td>' + signalBadge(d.signal) + '</td>'
+              + '<td>' + signalBadge(d.signal, d.strategy_type) + '</td>'
               + '<td><button class="btn-chart" onclick="openChart(\'' + sym + '\')">Grafik Goster</button></td>';
           })
           .catch(function(e) {
@@ -699,7 +724,7 @@
     function openChart(symbol) {
       const modal = document.getElementById('chartModal');
       modal.classList.add('active');
-      document.getElementById('chartModalTitle').textContent = symbol + ' - Son 60 Gun';
+      document.getElementById('chartModalTitle').textContent = symbol + ' — Son 60 Gun';
       document.getElementById('chartLoading').style.display = 'block';
       document.getElementById('chartError').style.display   = 'none';
 
@@ -719,6 +744,10 @@
             document.getElementById('chartError').textContent   = 'Hata: ' + data.error;
             return;
           }
+
+          // Modal başlığına strateji tipini ekle
+          var stLabel = data.strategy_type === 'ST' ? ' [Supertrend]' : ' [SMA Crossover]';
+          document.getElementById('chartModalTitle').textContent = symbol + ' — Son 60 Gun' + stLabel;
 
           buildPriceChart(data);
           buildRsiChart(data);
@@ -817,6 +846,19 @@
               spanGaps: true,
               order: 4,
             },
+            // Supertrend line (only for ST assets)
+            ...(data.strategy_type === 'ST' && data.supertrend ? [{
+              label: 'Supertrend',
+              data: data.supertrend,
+              borderColor: '#68d391',
+              borderWidth: 1.5,
+              borderDash: [5, 3],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.1,
+              spanGaps: false,
+              order: 3,
+            }] : []),
             // BUY signals: green triangle up
             {
               label: 'BUY',

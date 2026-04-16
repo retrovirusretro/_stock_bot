@@ -13,12 +13,14 @@ import pandas as pd
 # Proje klasorunu path'e ekle
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from data import get_price_data, add_indicators
-from strategy import sma_crossover_signals, filtered_signals
+from data import get_price_data, add_indicators, add_supertrend
+from strategy import sma_crossover_signals, filtered_signals, supertrend_signals
 from broker import get_account, is_market_open
 
-# Paper trader ile aynı grup mantığı
-CRISIS_ASSETS = {"GLD", "SLV", "USO"}
+# Paper trader ile birebir aynı grup tanımları
+CRISIS_ASSETS     = {"GLD", "SLV", "USO"}
+MINING_ASSETS     = {"GDX", "GDXJ"}
+SUPERTREND_ASSETS = {"XME", "COPX", "XLE", "XLB", "XLI", "QQQ", "DIA", "IWM", "AAPL", "MSFT"}
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -151,8 +153,16 @@ def api_symbol(symbol):
             start = (date.today() - timedelta(days=300)).strftime("%Y-%m-%d")
             df = get_price_data(symbol, start, end)
             df = add_indicators(df, sma_periods=[20, 50, 200])
-            use_sma200 = symbol not in CRISIS_ASSETS
-            df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
+
+            if symbol in SUPERTREND_ASSETS:
+                df = add_supertrend(df)
+                df = supertrend_signals(df)
+                strategy_type = "ST"
+            else:
+                use_sma200 = symbol not in CRISIS_ASSETS
+                df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
+                strategy_type = "SMA"
+
             last   = df.iloc[-1]
             signal = get_signal_label(df["position"])
 
@@ -163,14 +173,15 @@ def api_symbol(symbol):
                     return "N/A"
 
             return jsonify({
-                "symbol": symbol,
-                "price":  fmt(last["close"]),
-                "sma20":  fmt(last.get("sma20", float("nan"))),
-                "sma50":  fmt(last.get("sma50", float("nan"))),
-                "rsi":    fmt(last.get("rsi",   float("nan")), 1),
-                "atr":    fmt(last.get("atr",   float("nan")), 3),
-                "signal": signal,
-                "error":  None,
+                "symbol":        symbol,
+                "price":         fmt(last["close"]),
+                "sma20":         fmt(last.get("sma20", float("nan"))),
+                "sma50":         fmt(last.get("sma50", float("nan"))),
+                "rsi":           fmt(last.get("rsi",   float("nan")), 1),
+                "atr":           fmt(last.get("atr",   float("nan")), 3),
+                "signal":        signal,
+                "strategy_type": strategy_type,
+                "error":         None,
             })
         except Exception as exc:
             last_exc = exc
@@ -229,8 +240,16 @@ def chart_data(symbol):
         start = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
         df = get_price_data(symbol, start, end)
         df = add_indicators(df, sma_periods=[20, 50, 200])
-        use_sma200 = symbol not in CRISIS_ASSETS
-        df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
+
+        if symbol in SUPERTREND_ASSETS:
+            df = add_supertrend(df)
+            df = supertrend_signals(df)
+            strategy_type = "ST"
+        else:
+            use_sma200 = symbol not in CRISIS_ASSETS
+            df = filtered_signals(df, fast=20, slow=50, use_sma200=use_sma200)
+            strategy_type = "SMA"
+
         df = df.tail(60).copy()
         df.index = df.index.strftime("%Y-%m-%d")
 
@@ -256,20 +275,22 @@ def chart_data(symbol):
         atr_tp   = round(last_close + 4 * last_atr, 2) if last_atr else None
 
         return jsonify({
-            "labels":       list(df.index),
-            "close":        [round(float(x), 2) for x in df["close"]],
-            "sma20":        safe("sma20"),
-            "sma50":        safe("sma50"),
-            "bb_upper":     safe("bb_upper"),
-            "bb_lower":     safe("bb_lower"),
-            "rsi":          safe("rsi"),
-            "adx":          safe("adx"),
-            "bb_pct":       safe("bb_pct"),
-            "buy_signals":  buy_signals,
-            "sell_signals": sell_signals,
-            "atr_stop":     atr_stop,
-            "atr_tp":       atr_tp,
-            "symbol":       symbol,
+            "labels":        list(df.index),
+            "close":         [round(float(x), 2) for x in df["close"]],
+            "sma20":         safe("sma20"),
+            "sma50":         safe("sma50"),
+            "bb_upper":      safe("bb_upper"),
+            "bb_lower":      safe("bb_lower"),
+            "rsi":           safe("rsi"),
+            "adx":           safe("adx"),
+            "bb_pct":        safe("bb_pct"),
+            "buy_signals":   buy_signals,
+            "sell_signals":  sell_signals,
+            "atr_stop":      atr_stop,
+            "atr_tp":        atr_tp,
+            "supertrend":    safe("supertrend"),
+            "strategy_type": strategy_type,
+            "symbol":        symbol,
         })
       except Exception as exc:
         last_exc = exc

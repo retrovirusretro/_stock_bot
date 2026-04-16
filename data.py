@@ -7,6 +7,7 @@ Refactor: pandas-ta -> ta (Python 3.11 uyumlu)
 
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import ta
@@ -131,6 +132,86 @@ def add_indicators(df, sma_periods=None, rsi_period=14):
 
     # Bollinger Bands - dashboard/grafik icin (filtre degil)
     df = add_bollinger_bands(df)
+    return df
+
+
+def add_supertrend(df, period=10, multiplier=3.0):
+    """
+    Supertrend indikatörü hesaplar (ATR tabanlı trend takip).
+
+    Kural:
+        Fiyat lower band'in üstünde kalırsa -> yükseliş trendi (+1)
+        Fiyat upper band'in altına düşerse  -> düşüş trendi    (-1)
+
+    Args:
+        df:         OHLCV DataFrame (high, low, close gerekli)
+        period:     ATR periyodu (varsayılan: 10)
+        multiplier: ATR çarpanı  (varsayılan: 3.0)
+
+    Returns:
+        DataFrame: 'supertrend' (destek/direnç çizgisi) ve
+                   'supertrend_dir' (+1 / -1) kolonları eklenmiş
+    """
+    atr_series = ta.volatility.average_true_range(
+        df["high"], df["low"], df["close"], window=period
+    )
+
+    hl2         = (df["high"].values + df["low"].values) / 2.0
+    atr         = atr_series.values
+    close       = df["close"].values
+    n           = len(df)
+
+    basic_upper = hl2 + multiplier * atr
+    basic_lower = hl2 - multiplier * atr
+
+    final_upper = basic_upper.copy()
+    final_lower = basic_lower.copy()
+    supertrend  = np.zeros(n)
+    direction   = np.zeros(n, dtype=int)
+
+    direction[0]  = 1
+    supertrend[0] = final_lower[0]
+
+    for i in range(1, n):
+        # Final upper band: yalnızca aşağı kayar; fiyat üstüne çıkarsa sıfırla
+        if basic_upper[i] < final_upper[i - 1] or close[i - 1] > final_upper[i - 1]:
+            final_upper[i] = basic_upper[i]
+        else:
+            final_upper[i] = final_upper[i - 1]
+
+        # Final lower band: yalnızca yukarı kayar; fiyat altına inerse sıfırla
+        if basic_lower[i] > final_lower[i - 1] or close[i - 1] < final_lower[i - 1]:
+            final_lower[i] = basic_lower[i]
+        else:
+            final_lower[i] = final_lower[i - 1]
+
+        # Yön ve çizgi
+        if supertrend[i - 1] == final_upper[i - 1]:
+            # Önceki: düşüş (upper band takip)
+            if close[i] <= final_upper[i]:
+                direction[i] = -1
+                supertrend[i] = final_upper[i]
+            else:
+                direction[i] = 1
+                supertrend[i] = final_lower[i]
+        else:
+            # Önceki: yükseliş (lower band takip)
+            if close[i] >= final_lower[i]:
+                direction[i] = 1
+                supertrend[i] = final_lower[i]
+            else:
+                direction[i] = -1
+                supertrend[i] = final_upper[i]
+
+    df = df.copy()
+    df["supertrend"]     = supertrend
+    df["supertrend_dir"] = direction
+
+    # ATR henüz hesaplanamayan ilk satırları NaN yap
+    df.loc[atr_series.isna(), "supertrend"]     = float("nan")
+    df.loc[atr_series.isna(), "supertrend_dir"] = 0
+
+    print(f"[DATA] Supertrend({period},{multiplier}) hesaplandi.")
     return df
 
 

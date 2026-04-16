@@ -155,6 +155,124 @@ class FilteredSmaCrossoverStrategy(bt.Strategy):
 
 
 # ---------------------------------------------------------------------------
+# Strateji 3: Supertrend Stratejisi
+# Giris: Supertrend yukari donerken (fiyat band ustune cikarken)
+# Cikis: Supertrend asagi donerken (fiyat band altina dusunce)
+# Stop:  ATR tabanli dinamik (Strateji 2 ile ayni)
+# ---------------------------------------------------------------------------
+
+class SupertrendIndicator(bt.Indicator):
+    """
+    Supertrend indikatoru.
+    direction = +1: yukari trend (BUY zonu), -1: asagi trend (SELL zonu)
+    """
+    lines = ("supertrend", "direction",)
+    params = dict(period=10, multiplier=3.0)
+    plotinfo = dict(subplot=False)
+
+    def __init__(self):
+        self.atr = bt.indicators.ATR(self.data, period=self.p.period)
+        self.addminperiod(self.p.period + 1)
+
+    def next(self):
+        hl2   = (self.data.high[0] + self.data.low[0]) / 2.0
+        atr   = self.atr[0]
+        mult  = self.p.multiplier
+
+        basic_upper = hl2 + mult * atr
+        basic_lower = hl2 - mult * atr
+
+        # Ilk deger
+        if len(self) == self.p.period + 1:
+            self.lines.supertrend[0] = basic_lower
+            self.lines.direction[0]  = 1.0
+            return
+
+        prev_st  = self.lines.supertrend[-1]
+        prev_dir = self.lines.direction[-1]
+        close    = self.data.close[0]
+
+        # Final bantlar
+        if prev_dir == 1.0:
+            # Yukari trendteydik: lower band asla geri cekilmez
+            final_lower = max(basic_lower, prev_st)
+            if close < final_lower:
+                # Trend dondu: asagi
+                self.lines.supertrend[0] = basic_upper
+                self.lines.direction[0]  = -1.0
+            else:
+                self.lines.supertrend[0] = final_lower
+                self.lines.direction[0]  = 1.0
+        else:
+            # Asagi trendteydik: upper band asla yukselemez
+            final_upper = min(basic_upper, prev_st)
+            if close > final_upper:
+                # Trend dondu: yukari
+                self.lines.supertrend[0] = basic_lower
+                self.lines.direction[0]  = 1.0
+            else:
+                self.lines.supertrend[0] = final_upper
+                self.lines.direction[0]  = -1.0
+
+
+class SupertrendStrategy(bt.Strategy):
+    """
+    Supertrend tabanli strateji.
+    Giris : direction +1'e donerken (yukari crossover)
+    Cikis : direction -1'e donerken (asagi crossover)
+    Stop  : ATR x 2 dinamik
+    TP    : ATR x 4 dinamik
+    """
+    params = dict(
+        st_period=10,
+        st_mult=3.0,
+        stop_atr_mult=2.0,
+        tp_atr_mult=4.0,
+        stake_pct=0.95,
+    )
+
+    def __init__(self):
+        self.st    = SupertrendIndicator(self.data,
+                                         period=self.p.st_period,
+                                         multiplier=self.p.st_mult)
+        self.atr   = bt.indicators.ATR(self.data, period=14)
+        self.order      = None
+        self.buy_price  = None
+        self.stop_price = None
+        self.tp_price   = None
+        self._prev_dir  = None
+
+    def notify_order(self, order):
+        if order.status == order.Completed and order.isbuy():
+            self.buy_price  = order.executed.price
+            self.stop_price = self.buy_price - self.atr[0] * self.p.stop_atr_mult
+            self.tp_price   = self.buy_price + self.atr[0] * self.p.tp_atr_mult
+        if order.status not in [order.Submitted, order.Accepted]:
+            self.order = None
+
+    def next(self):
+        if self.order:
+            return
+
+        cur_dir  = self.st.direction[0]
+        prev_dir = self.st.direction[-1]
+        price    = self.data.close[0]
+
+        if not self.position:
+            # BUY: direction yeni +1'e dondu
+            if cur_dir == 1.0 and prev_dir == -1.0:
+                size = math.floor((self.broker.getcash() * self.p.stake_pct) / price)
+                if size > 0:
+                    self.order = self.buy(size=size)
+        else:
+            exit_trend = (cur_dir == -1.0 and prev_dir == 1.0)
+            exit_stop  = self.stop_price is not None and price <= self.stop_price
+            exit_tp    = self.tp_price   is not None and price >= self.tp_price
+            if exit_trend or exit_stop or exit_tp:
+                self.order = self.sell(size=self.position.size)
+
+
+# ---------------------------------------------------------------------------
 # Backtest Calistirici
 # ---------------------------------------------------------------------------
 
@@ -236,6 +354,32 @@ def print_comparison_table(results_old, results_new, period_label):
     print(f"{'='*90}")
 
 
+def print_supertrend_table(results_filtered, results_st, period_label):
+    """Filtreli SMA vs Supertrend karsilastirma tablosu."""
+    print(f"\n{'='*80}")
+    print(f"  {period_label} — FILTRELI SMA vs SUPERTREND")
+    print(f"{'='*80}")
+    header = f"  {'Sembol':<6} | {'SMA(Filt)':>10} {'Supertrend':>11} {'Fark':>8} | {'Sharpe(SMA)':>11} {'Sharpe(ST)':>11} | {'Islem(SMA)':>10} {'Islem(ST)':>10}"
+    print(header)
+    print(f"  {'-'*76}")
+
+    for sym in results_filtered:
+        if sym not in results_st:
+            continue
+        f  = results_filtered[sym]
+        st = results_st[sym]
+        diff     = st["total_return"] - f["total_return"]
+        sign     = "+" if diff >= 0 else ""
+        winner   = "ST  WIN" if diff > 1 else ("SMA WIN" if diff < -1 else "Esit   ")
+        print(
+            f"  {sym:<6} | "
+            f"%{f['total_return']:>+8.1f} %{st['total_return']:>+9.1f} {sign}{diff:>+6.1f}% | "
+            f"{f['sharpe']:>11.2f} {st['sharpe']:>11.2f} | "
+            f"{f['total_trades']:>10} {st['total_trades']:>10}  {winner}"
+        )
+    print(f"{'='*80}")
+
+
 # ---------------------------------------------------------------------------
 # Ana Giris
 # ---------------------------------------------------------------------------
@@ -272,17 +416,26 @@ if __name__ == "__main__":
         results_old = {}
         results_new = {}
 
+        results_old  = {}
+        results_new  = {}
+        results_st   = {}
+
         print(f"\nHesaplaniyor: {label} ...")
         for sym in SYMBOLS:
             try:
                 results_old[sym] = run_backtest(sym, start, end, SmaCrossoverStrategy, INITIAL_CASH)
             except Exception as e:
-                print(f"  [HATA] {sym} eski strateji: {e}")
+                print(f"  [HATA] {sym} eski: {e}")
             try:
                 results_new[sym] = run_backtest(sym, start, end, FilteredSmaCrossoverStrategy, INITIAL_CASH)
             except Exception as e:
-                print(f"  [HATA] {sym} yeni strateji: {e}")
+                print(f"  [HATA] {sym} filtreli: {e}")
+            try:
+                results_st[sym]  = run_backtest(sym, start, end, SupertrendStrategy, INITIAL_CASH)
+            except Exception as e:
+                print(f"  [HATA] {sym} supertrend: {e}")
 
         print_comparison_table(results_old, results_new, label)
+        print_supertrend_table(results_new, results_st, label)
 
     print("\n\nBacktest tamamlandi.")

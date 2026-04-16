@@ -8,8 +8,8 @@ import time
 import pandas as pd
 from datetime import datetime, timedelta
 
-from data     import get_price_data, add_indicators
-from strategy import filtered_signals
+from data     import get_price_data, add_indicators, add_supertrend
+from strategy import filtered_signals, supertrend_signals
 from logger   import log_signal, log_info, log_error
 from risk     import RiskManager
 import broker
@@ -34,13 +34,19 @@ SYMBOLS = [
     "AAPL", "MSFT",
 ]
 
-# Grup A: Kriz varliklari — SMA200 filtresi YOK
+# Grup A: Kriz varliklari — SMA crossover, SMA200 filtresi YOK
 # En buyuk hareketleri uzun vade ortalamasinin altindan basliyor
-# (enflasyon, kriz, USD dusus perioddlari)
+# (enflasyon, kriz, USD dusus periodlari)
 CRISIS_ASSETS = {"GLD", "SLV", "USO"}
 
-# Grup B: Geri kalan her sey — SMA200 filtresi VAR
-# Hisse, sektor ETF, genis piyasa ETF
+# Grup B: Madencilik/emtia ETF — SMA crossover, SMA200 filtresi VAR
+# Backtest: SMA bu grupta Supertrend'i geciyor (GDX +35.7% vs +23.9%)
+MINING_ASSETS = {"GDX", "GDXJ"}
+
+# Grup C: Sektor ETF, genis piyasa, hisseler — Supertrend
+# Backtest: Supertrend bu grupta SMA'yi belirgin sekilde geciyor
+# (XLE +47% vs -11.5%, XLI +51% vs +0.1%, QQQ +66.9% vs +20.8%)
+SUPERTREND_ASSETS = {"XME", "COPX", "XLE", "XLB", "XLI", "QQQ", "DIA", "IWM", "AAPL", "MSFT"}
 
 # Dongu aralik suresi (saniye)
 LOOP_INTERVAL = 60
@@ -86,8 +92,18 @@ def analyze_symbol(symbol):
         start, end = get_date_range()
         df = get_price_data(symbol, start, end)
         df = add_indicators(df, sma_periods=[SMA_FAST, SMA_SLOW, 200])
-        use_sma200 = symbol not in CRISIS_ASSETS
-        df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW, use_sma200=use_sma200)
+
+        # --- Strateji grubuna gore sinyal uret ---
+        if symbol in SUPERTREND_ASSETS:
+            df = add_supertrend(df)
+            df = supertrend_signals(df)
+            strategy_type = "ST"
+        else:
+            # CRISIS_ASSETS: SMA200 filtresi YOK
+            # MINING_ASSETS + diger SMA grubu: SMA200 filtresi VAR
+            use_sma200 = symbol not in CRISIS_ASSETS
+            df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW, use_sma200=use_sma200)
+            strategy_type = "SMA"
 
         last = df.iloc[-1]
 
@@ -116,13 +132,14 @@ def analyze_symbol(symbol):
         atr = float(last["atr"]) if "atr" in last and not pd.isna(last["atr"]) else None
 
         return {
-            "symbol": symbol,
-            "action": action,
-            "price":  price,
-            "sma20":  sma20,
-            "sma50":  sma50,
-            "rsi":    rsi,
-            "atr":    atr,
+            "symbol":        symbol,
+            "action":        action,
+            "price":         price,
+            "sma20":         sma20,
+            "sma50":         sma50,
+            "rsi":           rsi,
+            "atr":           atr,
+            "strategy_type": strategy_type,
         }
 
     except Exception as e:
@@ -138,16 +155,18 @@ def handle_signal(result):
     """
     global _open_positions_count, _daily_loss
 
-    symbol = result["symbol"]
-    action = result["action"]
-    price  = result["price"]
-    sma20  = result["sma20"]
-    sma50  = result["sma50"]
-    rsi    = result["rsi"]
-    atr    = result.get("atr")
+    symbol        = result["symbol"]
+    action        = result["action"]
+    price         = result["price"]
+    sma20         = result["sma20"]
+    sma50         = result["sma50"]
+    rsi           = result["rsi"]
+    atr           = result.get("atr")
+    strategy_type = result.get("strategy_type", "SMA")
 
-    # Her durumda logla
+    # Her durumda logla (strateji tipini de ekle)
     log_signal(symbol, action, price, sma20, sma50, rsi)
+    log_info(f"[STRATEJI] {symbol}: {strategy_type} modu")
 
     # --- Risk: gunluk kayip limiti kontrolu ---
     if risk.should_stop_trading(_daily_loss):

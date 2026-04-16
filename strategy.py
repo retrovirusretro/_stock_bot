@@ -124,6 +124,42 @@ def filtered_signals(df, fast=20, slow=50, use_sma200=True):
     return df
 
 
+def supertrend_signals(df):
+    """
+    Supertrend tabanlı sinyal üretir.
+
+    Kural:
+        supertrend_dir +1'e döndüğünde -> BUY crossover  (position = +2)
+        supertrend_dir -1'e döndüğünde -> SELL crossover (position = -2)
+
+    Args:
+        df: 'supertrend_dir' kolonu olan DataFrame
+            (add_supertrend() ile hazırlanmış olmalı)
+
+    Returns:
+        DataFrame: 'signal' (+1/-1) ve 'position' (+2/-2) kolonları eklenmiş
+    """
+    if "supertrend_dir" not in df.columns:
+        raise ValueError(
+            "DataFrame'de supertrend_dir kolonu yok. "
+            "Once add_supertrend() calistir."
+        )
+
+    df = df.copy()
+    df["signal"] = df["supertrend_dir"].apply(
+        lambda x: 1 if x == 1 else (-1 if x == -1 else 0)
+    )
+    df["position"] = df["signal"].diff()
+
+    buy_cross  = (df["position"] ==  2).sum()
+    sell_cross = (df["position"] == -2).sum()
+    print(
+        f"[STRATEGY] Supertrend -> "
+        f"{buy_cross} BUY crossover, {sell_cross} SELL crossover"
+    )
+    return df
+
+
 def print_signals(df, last_n=10):
     """Son N sinyali ekrana yazdirir."""
     signals = df[df["position"].abs() == 2].copy()
