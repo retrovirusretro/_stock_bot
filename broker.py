@@ -118,6 +118,16 @@ def get_open_positions_count():
         return 0
 
 
+def get_position_symbols():
+    """Tum acik pozisyon sembollerini liste olarak dondurur."""
+    try:
+        positions = _get_trading_client().get_all_positions()
+        return [p.symbol for p in positions]
+    except Exception as e:
+        log_error(f"get_position_symbols hatasi: {e}")
+        return []
+
+
 def place_buy_order(symbol, qty):
     """Market order BUY gonder."""
     try:

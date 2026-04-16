@@ -417,6 +417,30 @@
     </div>
   </div>
 
+  <!-- ---- Gunluk PnL Tablosu ---- -->
+  <div style="margin-top:32px;">
+    <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:#718096;margin-bottom:14px;">
+      Gunluk P&amp;L Gecmisi
+    </div>
+    <div class="table-wrap">
+      <table id="pnlTable">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>Baslangic</th>
+            <th>Kapanis</th>
+            <th>Degisim ($)</th>
+            <th>Degisim (%)</th>
+            <th>Acik Pozisyonlar</th>
+          </tr>
+        </thead>
+        <tbody id="pnlTableBody">
+          <tr><td colspan="6" style="color:#718096;font-size:0.8rem;padding:16px;">Yukleniyor...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ---- Legend ---- -->
   <div class="legend">
     <h2>Metrik Aciklamalari</h2>
@@ -1100,6 +1124,40 @@
         }
       });
     }
+
+    /* ============================================================
+       GUNLUK PNL TABLOSU
+    ============================================================ */
+    (function loadPnl() {
+      fetch('/api/pnl')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var tbody = document.getElementById('pnlTableBody');
+          if (!tbody) return;
+          if (d.error || !d.history || d.history.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:#718096;font-size:0.8rem;padding:16px;">Henuz veri yok. Market acilinca kayit baslar.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = d.history.map(function(row) {
+            var pos   = row.change >= 0;
+            var color = pos ? '#68d391' : '#fc8181';
+            var sign  = pos ? '+' : '';
+            var posStr = row.positions && row.positions.length ? row.positions.join(', ') : '—';
+            return '<tr>'
+              + '<td><span class="metric-val" style="font-size:0.85rem;">' + row.date + '</span></td>'
+              + '<td>$' + row.start.toLocaleString('tr-TR', {minimumFractionDigits:2}) + '</td>'
+              + '<td>$' + row.end.toLocaleString('tr-TR', {minimumFractionDigits:2}) + '</td>'
+              + '<td style="color:' + color + ';font-weight:700;">' + sign + '$' + Math.abs(row.change).toLocaleString('tr-TR', {minimumFractionDigits:2}) + '</td>'
+              + '<td style="color:' + color + ';font-weight:700;">' + sign + row.pct.toFixed(2) + '%</td>'
+              + '<td style="color:#a0aec0;font-size:0.8rem;">' + posStr + '</td>'
+              + '</tr>';
+          }).join('');
+        })
+        .catch(function() {
+          var tbody = document.getElementById('pnlTableBody');
+          if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:#fc8181;">Veri alinamadi.</td></tr>';
+        });
+    })();
 
     function buildBbChart(data) {
       if (!data.bb_pct) return;

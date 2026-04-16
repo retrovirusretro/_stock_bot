@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data import get_price_data, add_indicators, add_supertrend
 from strategy import sma_crossover_signals, filtered_signals, supertrend_signals
 from broker import get_account, is_market_open
+import reporter
 
 # Paper trader ile birebir aynı grup tanımları
 CRISIS_ASSETS     = {"GLD", "SLV", "USO"}
@@ -297,6 +298,17 @@ def chart_data(symbol):
         if attempt < 2:
             time.sleep(1)
     return jsonify({"error": str(last_exc), "symbol": symbol}), 500
+
+
+@app.route("/api/pnl")
+def api_pnl():
+    """Son 30 gunun PnL gecmisini JSON olarak dondurur."""
+    try:
+        history = reporter.get_history(30)
+        today   = reporter.get_today()
+        return jsonify({"history": history, "today": today, "error": None})
+    except Exception as exc:
+        return jsonify({"history": [], "today": None, "error": str(exc)}), 500
 
 
 if __name__ == "__main__":

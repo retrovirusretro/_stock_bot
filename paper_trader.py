@@ -13,6 +13,7 @@ from strategy import filtered_signals, supertrend_signals
 from logger   import log_signal, log_info, log_error
 from risk     import RiskManager
 import broker
+import reporter
 
 # ---------------------------------------------------------------------------
 # Ayarlar
@@ -304,6 +305,15 @@ def run():
                 handle_signal(result)
             else:
                 log_error(f"{symbol} analiz edilemedi, atlaniyor.")
+
+        # Gunluk PnL raporu
+        try:
+            acct = broker.get_account()
+            if acct:
+                pos_symbols = broker.get_position_symbols()
+                reporter.update(acct["equity"], pos_symbols)
+        except Exception as e:
+            log_error(f"PnL guncelleme hatasi: {e}")
 
         log_info(f"Tum semboller islendi. {LOOP_INTERVAL}s bekleniyor...")
         time.sleep(LOOP_INTERVAL)
