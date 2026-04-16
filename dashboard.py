@@ -17,6 +17,7 @@ from data import get_price_data, add_indicators, add_supertrend
 from strategy import sma_crossover_signals, filtered_signals, supertrend_signals
 from broker import get_account, is_market_open
 import reporter
+import screener
 
 # Paper trader ile birebir aynı grup tanımları
 CRISIS_ASSETS     = {"GLD", "SLV", "USO"}
@@ -298,6 +299,33 @@ def chart_data(symbol):
         if attempt < 2:
             time.sleep(1)
     return jsonify({"error": str(last_exc), "symbol": symbol}), 500
+
+
+@app.route("/api/screener")
+def api_screener():
+    """S&P500 screener sonuclarini dondurur. Cache yoksa arka planda baslatir."""
+    try:
+        cache, is_running = screener.get_or_trigger()
+        return jsonify({
+            "results":       cache["results"]       if cache else [],
+            "timestamp":     cache["timestamp"]     if cache else None,
+            "total_scanned": cache.get("total_scanned", 0) if cache else 0,
+            "total_buy":     cache.get("total_buy",     0) if cache else 0,
+            "is_running":    is_running,
+            "error":         None,
+        })
+    except Exception as exc:
+        return jsonify({"results": [], "is_running": False, "error": str(exc)}), 500
+
+
+@app.route("/api/screener/refresh", methods=["POST"])
+def api_screener_refresh():
+    """Zorla yeni tarama baslatir (force=True)."""
+    try:
+        _, is_running = screener.get_or_trigger(force=True)
+        return jsonify({"is_running": is_running, "error": None})
+    except Exception as exc:
+        return jsonify({"is_running": False, "error": str(exc)}), 500
 
 
 @app.route("/api/pnl")

@@ -417,6 +417,40 @@
     </div>
   </div>
 
+  <!-- ---- S&P500 Screener ---- -->
+  <div style="margin-top:32px;">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap;">
+      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:#718096;">
+        S&amp;P500 Screener &mdash; En Guclu Supertrend BUY Sinyalleri
+      </div>
+      <button id="screenerRefreshBtn" onclick="refreshScreener()" style="
+        padding:4px 14px;font-size:0.72rem;font-weight:600;
+        background:#1a2e4a;color:#90cdf4;border:1px solid #2b4a7a;
+        border-radius:6px;cursor:pointer;">
+        &#8635; Yenile
+      </button>
+      <span id="screenerStatus" style="font-size:0.72rem;color:#718096;"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Sembol</th>
+            <th>Fiyat</th>
+            <th>ADX</th>
+            <th>RSI</th>
+            <th>Supertrend</th>
+            <th>Hacim/Ort.</th>
+            <th>Sinyal</th>
+          </tr>
+        </thead>
+        <tbody id="screenerBody">
+          <tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;" id="screenerEmpty">Yukleniyor...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ---- Gunluk PnL Tablosu ---- -->
   <div style="margin-top:32px;">
     <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:#718096;margin-bottom:14px;">
@@ -1124,6 +1158,83 @@
         }
       });
     }
+
+    /* ============================================================
+       S&P500 SCREENER
+    ============================================================ */
+    var _screenerPollTimer = null;
+
+    function loadScreener() {
+      fetch('/api/screener')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var tbody  = document.getElementById('screenerBody');
+          var status = document.getElementById('screenerStatus');
+          var btn    = document.getElementById('screenerRefreshBtn');
+          if (!tbody) return;
+
+          if (d.is_running) {
+            status.textContent = 'Taranıyor... (1-2 dk)';
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            if (!_screenerPollTimer) {
+              _screenerPollTimer = setInterval(loadScreener, 15000);
+            }
+          } else {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            if (_screenerPollTimer) { clearInterval(_screenerPollTimer); _screenerPollTimer = null; }
+            if (d.timestamp) {
+              var ts = new Date(d.timestamp);
+              var diff = Math.round((Date.now() - ts.getTime()) / 60000);
+              status.textContent = 'Son tarama: ' + diff + ' dk once | '
+                + d.total_scanned + ' sembol | '
+                + d.total_buy + ' BUY sinyali';
+            } else {
+              status.textContent = '';
+            }
+          }
+
+          if (!d.results || d.results.length === 0) {
+            if (!d.is_running) {
+              tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;">Sonuc yok. Yenile butonuna basin.</td></tr>';
+            } else {
+              tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;">Tarama devam ediyor...</td></tr>';
+            }
+            return;
+          }
+
+          tbody.innerHTML = d.results.map(function(r) {
+            var adxColor = r.adx >= 40 ? '#f6ad55' : r.adx >= 20 ? '#90cdf4' : '#718096';
+            var rsiColor = r.rsi >= 70 ? '#fc8181' : r.rsi <= 30 ? '#68d391' : '#e2e8f0';
+            var volColor = r.vol_ratio >= 1.5 ? '#68d391' : '#a0aec0';
+            return '<tr>'
+              + '<td><span class="sym-name" style="font-size:0.92rem;">' + r.symbol + '</span></td>'
+              + '<td><span class="metric-val">$' + r.price.toFixed(2) + '</span></td>'
+              + '<td style="color:' + adxColor + ';font-weight:700;">' + r.adx.toFixed(1) + '</td>'
+              + '<td style="color:' + rsiColor + ';">' + r.rsi.toFixed(1) + '</td>'
+              + '<td style="color:#68d391;font-size:0.82rem;">$' + r.supertrend.toFixed(2) + '</td>'
+              + '<td style="color:' + volColor + ';">' + r.vol_ratio.toFixed(2) + 'x</td>'
+              + '<td><span class="badge badge-BUY">BUY</span></td>'
+              + '</tr>';
+          }).join('');
+        })
+        .catch(function() {
+          document.getElementById('screenerStatus').textContent = 'Baglanti hatasi';
+        });
+    }
+
+    function refreshScreener() {
+      var btn = document.getElementById('screenerRefreshBtn');
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      document.getElementById('screenerStatus').textContent = 'Tarama baslatiliyor...';
+      fetch('/api/screener/refresh', { method: 'POST' })
+        .then(function() { loadScreener(); });
+    }
+
+    // Sayfa acilinca yukle (cache varsa aninda gosterir, yoksa baslatir)
+    loadScreener();
 
     /* ============================================================
        GUNLUK PNL TABLOSU
