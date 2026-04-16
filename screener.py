@@ -48,9 +48,24 @@ def get_sp500_symbols():
     """
     Wikipedia'dan S&P500 sembol listesini ceker.
     Nokta iceren semboller yfinance formatina donusturulur (BRK.B -> BRK-B).
+    Wikipedia bot engelini asabilmek icin requests ile User-Agent set edilir.
     """
+    import requests
+    from io import StringIO
     try:
-        tables  = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        resp    = requests.get(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            headers=headers, timeout=15
+        )
+        resp.raise_for_status()
+        tables  = pd.read_html(StringIO(resp.text))
         symbols = tables[0]["Symbol"].tolist()
         symbols = [str(s).replace(".", "-") for s in symbols]
         log_info(f"[SCREENER] S&P500: {len(symbols)} sembol alindi.")
