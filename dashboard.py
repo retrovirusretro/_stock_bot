@@ -244,14 +244,31 @@ def chart_data(symbol):
                 elif pos == -2.0:
                     sell_signals.append({"x": t, "y": round(float(row["close"]), 2)})
 
+        def safe(col):
+            if col not in df.columns:
+                return [None] * len(df)
+            return [round(float(x), 4) if not pd.isna(x) else None for x in df[col]]
+
+        # ATR stop/TP seviyeleri: son kapanisa gore hesapla
+        last_close = float(df["close"].iloc[-1])
+        last_atr   = float(df["atr"].iloc[-1]) if "atr" in df.columns and not pd.isna(df["atr"].iloc[-1]) else None
+        atr_stop = round(last_close - 2 * last_atr, 2) if last_atr else None
+        atr_tp   = round(last_close + 4 * last_atr, 2) if last_atr else None
+
         return jsonify({
             "labels":       list(df.index),
             "close":        [round(float(x), 2) for x in df["close"]],
-            "sma20":        [round(float(x), 2) if not pd.isna(x) else None for x in df["sma20"]],
-            "sma50":        [round(float(x), 2) if not pd.isna(x) else None for x in df["sma50"]],
-            "rsi":          [round(float(x), 2) if not pd.isna(x) else None for x in df["rsi"]],
+            "sma20":        safe("sma20"),
+            "sma50":        safe("sma50"),
+            "bb_upper":     safe("bb_upper"),
+            "bb_lower":     safe("bb_lower"),
+            "rsi":          safe("rsi"),
+            "adx":          safe("adx"),
+            "bb_pct":       safe("bb_pct"),
             "buy_signals":  buy_signals,
             "sell_signals": sell_signals,
+            "atr_stop":     atr_stop,
+            "atr_tp":       atr_tp,
             "symbol":       symbol,
         })
       except Exception as exc:

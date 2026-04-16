@@ -471,6 +471,22 @@
         </div>
       </div>
 
+      <!-- ADX chart -->
+      <div class="chart-section">
+        <div class="chart-label">ADX (14) &mdash; Trend Gucu &nbsp;<span style="font-size:0.7rem;color:#718096;">20+ trend var &bull; 40+ guclu trend</span></div>
+        <div class="chart-container" style="height:140px;">
+          <canvas id="adxChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Bollinger Bands info -->
+      <div class="chart-section">
+        <div class="chart-label">Bollinger Bands (20,2) &mdash; Fiyat Konumu &nbsp;<span style="font-size:0.7rem;color:#718096;">%BB: 0=alt bant, 1=ust bant, 0.5=orta</span></div>
+        <div class="chart-container" style="height:120px;">
+          <canvas id="bbChart"></canvas>
+        </div>
+      </div>
+
       <div class="chart-loading" id="chartLoading" style="display:none;">Veri yukleniyor...</div>
       <div id="chartError" style="display:none;color:#fc8181;font-size:0.85rem;padding:12px 0;"></div>
     </div>
@@ -674,6 +690,8 @@
     ============================================================ */
     let priceChartInst = null;
     let rsiChartInst   = null;
+    let adxChartInst   = null;
+    let bbChartInst    = null;
 
     Chart.defaults.color = '#a0aec0';
     Chart.defaults.borderColor = '#2d3748';
@@ -688,6 +706,8 @@
       // destroy previous instances
       if (priceChartInst) { priceChartInst.destroy(); priceChartInst = null; }
       if (rsiChartInst)   { rsiChartInst.destroy();   rsiChartInst   = null; }
+      if (adxChartInst)   { adxChartInst.destroy();   adxChartInst   = null; }
+      if (bbChartInst)    { bbChartInst.destroy();    bbChartInst    = null; }
 
       fetch('/chart/' + encodeURIComponent(symbol))
         .then(function(r) { return r.json(); })
@@ -702,6 +722,8 @@
 
           buildPriceChart(data);
           buildRsiChart(data);
+          buildAdxChart(data);
+          buildBbChart(data);
         })
         .catch(function(err) {
           document.getElementById('chartLoading').style.display = 'none';
@@ -767,6 +789,33 @@
               tension: 0.3,
               spanGaps: true,
               order: 3,
+            },
+            // Bollinger Upper Band
+            {
+              label: 'BB Ust',
+              data: data.bb_upper || [],
+              borderColor: 'rgba(159,122,234,0.6)',
+              borderWidth: 1,
+              borderDash: [3, 3],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+              order: 4,
+            },
+            // Bollinger Lower Band
+            {
+              label: 'BB Alt',
+              data: data.bb_lower || [],
+              borderColor: 'rgba(159,122,234,0.6)',
+              borderWidth: 1,
+              borderDash: [3, 3],
+              backgroundColor: 'rgba(159,122,234,0.05)',
+              pointRadius: 0,
+              fill: '-1',
+              tension: 0.3,
+              spanGaps: true,
+              order: 4,
             },
             // BUY signals: green triangle up
             {
@@ -948,6 +997,143 @@
               ticks: { stepSize: 20, font: { size: 10 } },
               grid: { color: 'rgba(45,55,72,0.8)' }
             }
+          }
+        }
+      });
+    }
+
+    function buildAdxChart(data) {
+      if (!data.adx) return;
+      const ctx = document.getElementById('adxChart').getContext('2d');
+      var trend20 = data.adx.map(function() { return 20; });
+      var trend40 = data.adx.map(function() { return 40; });
+
+      adxChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: 'ADX(14)',
+              data: data.adx,
+              borderColor: '#f6ad55',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+            },
+            {
+              label: 'Trend esigi (20)',
+              data: trend20,
+              borderColor: 'rgba(160,174,192,0.4)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+            },
+            {
+              label: 'Guclu trend (40)',
+              data: trend40,
+              borderColor: 'rgba(252,129,129,0.4)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: { ticks: { maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(45,55,72,0.8)' } },
+            y: { min: 0, ticks: { font: { size: 10 } }, grid: { color: 'rgba(45,55,72,0.8)' } }
+          }
+        }
+      });
+    }
+
+    function buildBbChart(data) {
+      if (!data.bb_pct) return;
+      const ctx = document.getElementById('bbChart').getContext('2d');
+      var top1  = data.bb_pct.map(function() { return 1; });
+      var mid   = data.bb_pct.map(function() { return 0.5; });
+      var bot0  = data.bb_pct.map(function() { return 0; });
+
+      bbChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: '%BB',
+              data: data.bb_pct,
+              borderColor: '#9f7aea',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              spanGaps: true,
+            },
+            {
+              label: 'Ust bant (1)',
+              data: top1,
+              borderColor: 'rgba(252,129,129,0.4)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+            },
+            {
+              label: 'Orta (0.5)',
+              data: mid,
+              borderColor: 'rgba(160,174,192,0.3)',
+              borderWidth: 1,
+              borderDash: [2, 4],
+              pointRadius: 0,
+              fill: false,
+            },
+            {
+              label: 'Alt bant (0)',
+              data: bot0,
+              borderColor: 'rgba(104,211,145,0.4)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: function(ctx) {
+                  if (ctx.dataset.label === '%BB') {
+                    var v = ctx.parsed.y;
+                    var yorum = v > 0.8 ? ' — Ust banda yakin (asiri alim)' : v < 0.2 ? ' — Alt banda yakin (asiri satim)' : '';
+                    return ' %BB: ' + (v * 100).toFixed(1) + '%' + yorum;
+                  }
+                  return null;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(45,55,72,0.8)' } },
+            y: { ticks: { font: { size: 10 }, callback: function(v) { return (v*100).toFixed(0)+'%'; } }, grid: { color: 'rgba(45,55,72,0.8)' } }
           }
         }
       });
