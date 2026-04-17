@@ -160,6 +160,64 @@ def supertrend_signals(df):
     return df
 
 
+def rsi_bounce_signals(df, rsi_low=35, rsi_high=50):
+    """
+    RSI asiri satim bolgesinden cikis sinyali (SMA grubu icin ek katman).
+
+    Kural:
+        RSI once rsi_low altina dusmus, sonra rsi_high ustune cikinca -> BUY (+2)
+        BUY sonrasinda RSI tekrar rsi_low altina dusunce            -> SELL (-2)
+
+    SMA crossover ile kombine kullanilir: hangi BUY daha yeniyse
+    o aksiyon alinir (paper_trader.py karsilastirir).
+
+    Args:
+        df      : 'rsi' kolonu olan OHLCV DataFrame
+        rsi_low : Asiri satim esigi (varsayilan 35)
+        rsi_high: Yukselis onay esigi (varsayilan 50)
+
+    Returns:
+        DataFrame: 'rsi_signal' (+1/-1) ve 'rsi_position' (+2/-2) kolonlari eklenmis
+    """
+    if "rsi" not in df.columns:
+        df["rsi_signal"]   = 0
+        df["rsi_position"] = 0
+        return df
+
+    df = df.copy()
+    rsi = df["rsi"].values
+    n   = len(df)
+
+    signal = [0] * n
+    in_oversold = False   # RSI < rsi_low esigini gercekten gormustuk mu?
+    in_buy      = False   # Aktif BUY pozisyonunda miyiz?
+
+    for i in range(1, n):
+        if rsi[i] < rsi_low:
+            in_oversold = True
+
+        if in_oversold and not in_buy and rsi[i] > rsi_high:
+            signal[i]   = 2     # BUY crossover
+            in_buy      = True
+            in_oversold = False
+
+        elif in_buy and rsi[i] < rsi_low:
+            signal[i] = -2      # SELL crossover
+            in_buy    = False
+            in_oversold = True  # hemen tekrar oversold sayiyor
+
+    df["rsi_signal"]   = [1 if s == 2 else (-1 if s == -2 else 0) for s in signal]
+    df["rsi_position"] = signal
+
+    buy_count  = sum(1 for s in signal if s ==  2)
+    sell_count = sum(1 for s in signal if s == -2)
+    print(
+        f"[STRATEGY] RSI Bounce (low={rsi_low}, high={rsi_high}) -> "
+        f"{buy_count} BUY, {sell_count} SELL"
+    )
+    return df
+
+
 def print_signals(df, last_n=10):
     """Son N sinyali ekrana yazdirir."""
     signals = df[df["position"].abs() == 2].copy()

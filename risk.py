@@ -136,6 +136,36 @@ class RiskManager:
             return 0.0
         return max(0.0, (peak_equity - current_equity) / peak_equity)
 
+    def kelly_position_size(self, price, win_rate, avg_win_pct, avg_loss_pct, half_kelly=True):
+        """
+        Kelly Criterion pozisyon boyutu.
+
+        Formul: f* = (p*b - q) / b
+            p = win_rate (kazanma olasiligi)
+            q = 1 - p   (kaybetme olasiligi)
+            b = avg_win_pct / avg_loss_pct  (kazanc/kayip orani)
+
+        half_kelly=True: f*'i 0.5 ile carp (daha muhafazakar, overfit'e karsi)
+        Sonuc max_position_pct ile kirpilir.
+
+        En az 10 gun verisi olmadan cagirmamali (reporter.py kontrol eder).
+        """
+        if price <= 0 or avg_loss_pct <= 0:
+            return self.position_size(price)   # veri yoksa standart boyut
+
+        b = avg_win_pct / avg_loss_pct
+        q = 1.0 - win_rate
+        f = (win_rate * b - q) / b
+
+        if half_kelly:
+            f *= 0.5
+
+        # 0 ile max_position_pct arasinda kirp
+        f = max(0.0, min(f, self.max_position_pct))
+
+        qty = int(self.capital * f / price)
+        return max(0, qty)
+
     def check_consecutive_losses(self, loss_streak):
         """
         Ust uste kayip gun limiti asildi mi?

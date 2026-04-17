@@ -226,6 +226,12 @@ def get_performance_stats():
 
     avg_daily  = round(sum(daily_returns) / len(daily_returns) * 100, 4) if daily_returns else 0.0
 
+    # Ortalama kazanc / kayip (Kelly icin)
+    pos_returns = [r for r in daily_returns if r > 0]
+    neg_returns = [r for r in daily_returns if r < 0]
+    avg_win_pct  = round(sum(pos_returns) / len(pos_returns), 6) if pos_returns else 0.01
+    avg_loss_pct = round(abs(sum(neg_returns) / len(neg_returns)), 6) if neg_returns else 0.01
+
     return {
         "sharpe_ratio":     sharpe,
         "max_drawdown":     round(max_dd, 4),
@@ -236,6 +242,8 @@ def get_performance_stats():
         "trading_days":     len(days),
         "start_equity":     round(start_eq,   2),
         "current_equity":   round(current_eq, 2),
+        "avg_win_pct":      avg_win_pct,
+        "avg_loss_pct":     avg_loss_pct,
     }
 
 

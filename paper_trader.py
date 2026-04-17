@@ -8,12 +8,13 @@ import time
 import pandas as pd
 from datetime import datetime, timedelta
 
-from data     import get_price_data, add_indicators, add_supertrend
-from strategy import filtered_signals, supertrend_signals
-from logger   import log_signal, log_info, log_error
-from risk     import RiskManager
+from data      import get_price_data, add_indicators, add_supertrend
+from strategy  import filtered_signals, supertrend_signals, rsi_bounce_signals
+from logger    import log_signal, log_info, log_error
+from risk      import RiskManager
 import broker
 import reporter
+import sentiment
 
 # ---------------------------------------------------------------------------
 # Ayarlar
@@ -104,12 +105,16 @@ def analyze_symbol(symbol):
             df = add_supertrend(df)
             df = supertrend_signals(df)
             strategy_type = "ST"
+            rsi_bounce_active = False
         else:
             # CRISIS_ASSETS: SMA200 filtresi YOK
             # MINING_ASSETS + diger SMA grubu: SMA200 filtresi VAR
             use_sma200 = symbol not in CRISIS_ASSETS
             df = filtered_signals(df, fast=SMA_FAST, slow=SMA_SLOW, use_sma200=use_sma200)
+            # RSI Bounce ek katmanı — SMA grubu için
+            df = rsi_bounce_signals(df, rsi_low=35, rsi_high=50)
             strategy_type = "SMA"
+            rsi_bounce_active = True
 
         last = df.iloc[-1]
 
@@ -119,7 +124,7 @@ def analyze_symbol(symbol):
         sma50 = float(last[f"sma{SMA_SLOW}"])
         rsi   = float(last["rsi"])
 
-        # Son crossover sinyali (butun history'e bakiyoruz)
+        # --- SMA crossover son sinyali ---
         buy_rows  = df[df["position"] ==  2]
         sell_rows = df[df["position"] == -2]
 
@@ -134,6 +139,19 @@ def analyze_symbol(symbol):
             action = "BUY"
         elif last_sell_date:
             action = "SELL"
+
+        # --- RSI Bounce ek sinyali (SMA grubu) ---
+        # Eğer SMA crossover HOLD ise ve RSI bounce yeni bir BUY ürettiyse → BUY'a yükselt
+        if rsi_bounce_active and action == "HOLD":
+            rsi_buy_rows  = df[df["rsi_position"] ==  2]
+            rsi_sell_rows = df[df["rsi_position"] == -2]
+            last_rsi_buy  = rsi_buy_rows.index[-1]  if not rsi_buy_rows.empty  else None
+            last_rsi_sell = rsi_sell_rows.index[-1] if not rsi_sell_rows.empty else None
+
+            if last_rsi_buy and (not last_rsi_sell or last_rsi_buy > last_rsi_sell):
+                action       = "BUY"
+                strategy_type = "RSI_BOUNCE"
+                log_info(f"[STRATEJI] {symbol}: RSI Bounce BUY sinyali ({last_rsi_buy.date()})")
 
         atr = float(last["atr"]) if "atr" in last and not pd.isna(last["atr"]) else None
 
@@ -232,6 +250,10 @@ def handle_signal(result):
         return
 
     if action == "BUY":
+        # --- Sentiment filtresi ---
+        if not sentiment.should_allow_buy(symbol):
+            return   # Negatif haber — BUY atla (loglama sentiment.py içinde yapildi)
+
         # --- Risk: max acik pozisyon kontrolu ---
         if not risk.can_open_position(_open_positions_count):
             log_info(
@@ -240,9 +262,30 @@ def handle_signal(result):
             )
             return
 
-        # --- Risk: pozisyon buyutu ve fiyat seviyeleri ---
-        qty = risk.position_size(price)
-        # ATR varsa dinamik stop/TP, yoksa sabit oran
+        # --- Kelly Criterion pozisyon boyutu ---
+        # En az 10 gunluk performans verisi varsa Kelly kullan, yoksa standart
+        try:
+            perf = reporter.get_performance_stats()
+            if perf["trading_days"] >= 10:
+                qty = risk.kelly_position_size(
+                    price,
+                    win_rate     = perf["win_rate"],
+                    avg_win_pct  = perf["avg_win_pct"],
+                    avg_loss_pct = perf["avg_loss_pct"],
+                )
+                log_info(
+                    f"[KELLY] {symbol}: win_rate={perf['win_rate']:.0%} | "
+                    f"avg_win={perf['avg_win_pct']:.3%} | "
+                    f"avg_loss={perf['avg_loss_pct']:.3%} | qty={qty}"
+                )
+            else:
+                qty = risk.position_size(price)
+                log_info(f"[KELLY] {symbol}: yeterli veri yok ({perf['trading_days']} gun) — standart boyut: qty={qty}")
+        except Exception as e:
+            qty = risk.position_size(price)
+            log_error(f"Kelly hesaplama hatasi: {e} — standart boyuta donuluyor")
+
+        # --- ATR tabanlı stop/TP ---
         if atr:
             sl = risk.atr_stop_loss_price(price, atr, multiplier=2.0)
             tp = risk.atr_take_profit_price(price, atr, multiplier=4.0)
