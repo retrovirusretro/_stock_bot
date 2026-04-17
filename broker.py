@@ -76,7 +76,7 @@ def get_account():
         return {
             "equity":       float(account.equity),
             "buying_power": float(account.buying_power),
-            "status":       str(account.status),
+            "status":       str(account.status).split(".")[-1],   # AccountStatus.ACTIVE → ACTIVE
         }
     except Exception as e:
         log_error(f"get_account hatasi: {e}")
