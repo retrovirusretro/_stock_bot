@@ -431,23 +431,8 @@
       </button>
       <span id="screenerStatus" style="font-size:0.72rem;color:#718096;"></span>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Sembol</th>
-            <th>Fiyat</th>
-            <th>ADX</th>
-            <th>RSI</th>
-            <th>Supertrend</th>
-            <th>Hacim/Ort.</th>
-            <th>Sinyal</th>
-          </tr>
-        </thead>
-        <tbody id="screenerBody">
-          <tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;" id="screenerEmpty">Yukleniyor...</td></tr>
-        </tbody>
-      </table>
+    <div id="screenerGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;">
+      <div class="card" style="padding:20px;color:#718096;font-size:0.85rem;">Yukleniyor...</div>
     </div>
   </div>
 
@@ -1163,15 +1148,16 @@
        S&P500 SCREENER
     ============================================================ */
     var _screenerPollTimer = null;
+    var _screenerCharts    = {};
 
     function loadScreener() {
       fetch('/api/screener')
         .then(function(r) { return r.json(); })
         .then(function(d) {
-          var tbody  = document.getElementById('screenerBody');
+          var grid   = document.getElementById('screenerGrid');
           var status = document.getElementById('screenerStatus');
           var btn    = document.getElementById('screenerRefreshBtn');
-          if (!tbody) return;
+          if (!grid) return;
 
           if (d.is_running) {
             status.textContent = 'Taranıyor... (1-2 dk)';
@@ -1185,43 +1171,123 @@
             btn.style.opacity = '1';
             if (_screenerPollTimer) { clearInterval(_screenerPollTimer); _screenerPollTimer = null; }
             if (d.timestamp) {
-              var ts = new Date(d.timestamp);
+              var ts   = new Date(d.timestamp);
               var diff = Math.round((Date.now() - ts.getTime()) / 60000);
               status.textContent = 'Son tarama: ' + diff + ' dk once | '
-                + d.total_scanned + ' sembol | '
-                + d.total_buy + ' BUY sinyali';
-            } else {
-              status.textContent = '';
+                + d.total_scanned + ' sembol | ' + d.total_buy + ' BUY sinyali';
             }
           }
 
           if (!d.results || d.results.length === 0) {
-            if (!d.is_running) {
-              tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;">Sonuc yok. Yenile butonuna basin.</td></tr>';
-            } else {
-              tbody.innerHTML = '<tr><td colspan="7" style="color:#718096;font-size:0.8rem;padding:16px;">Tarama devam ediyor...</td></tr>';
-            }
+            grid.innerHTML = '<div class="card" style="padding:20px;color:#718096;font-size:0.85rem;">'
+              + (d.is_running ? 'Tarama devam ediyor...' : 'Sonuc yok. Yenile butonuna basin.')
+              + '</div>';
             return;
           }
 
-          tbody.innerHTML = d.results.map(function(r) {
-            var adxColor = r.adx >= 40 ? '#f6ad55' : r.adx >= 20 ? '#90cdf4' : '#718096';
-            var rsiColor = r.rsi >= 70 ? '#fc8181' : r.rsi <= 30 ? '#68d391' : '#e2e8f0';
-            var volColor = r.vol_ratio >= 1.5 ? '#68d391' : '#a0aec0';
-            return '<tr>'
-              + '<td><span class="sym-name" style="font-size:0.92rem;">' + r.symbol + '</span></td>'
-              + '<td><span class="metric-val">$' + r.price.toFixed(2) + '</span></td>'
-              + '<td style="color:' + adxColor + ';font-weight:700;">' + r.adx.toFixed(1) + '</td>'
-              + '<td style="color:' + rsiColor + ';">' + r.rsi.toFixed(1) + '</td>'
-              + '<td style="color:#68d391;font-size:0.82rem;">$' + r.supertrend.toFixed(2) + '</td>'
-              + '<td style="color:' + volColor + ';">' + r.vol_ratio.toFixed(2) + 'x</td>'
-              + '<td><span class="badge badge-BUY">BUY</span></td>'
-              + '</tr>';
+          // Mevcut chart instance'lari temizle
+          Object.values(_screenerCharts).forEach(function(c) { try { c.destroy(); } catch(e) {} });
+          _screenerCharts = {};
+
+          grid.innerHTML = d.results.map(function(r, i) {
+            var adxColor = r.adx >= 40 ? '#f6ad55' : '#90cdf4';
+            var rsiColor = r.rsi >= 70 ? '#fc8181' : r.rsi <= 30 ? '#68d391' : '#a0aec0';
+            var volColor = r.vol_ratio >= 1.5 ? '#68d391' : '#718096';
+            var nameHtml = r.name ? '<div style="font-size:0.67rem;color:#718096;margin-top:2px;line-height:1.35;max-width:200px;">' + r.name + '</div>' : '';
+            return '<div class="card" style="padding:14px 16px;">'
+              + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">'
+              +   '<div>'
+              +     '<span style="font-weight:700;font-size:0.95rem;letter-spacing:0.04em;">' + r.symbol + '</span>'
+              +     nameHtml
+              +   '</div>'
+              +   '<div style="text-align:right;">'
+              +     '<span style="font-size:0.9rem;font-weight:600;color:#e2e8f0;">$' + r.price.toFixed(2) + '</span>'
+              +     '<div style="margin-top:3px;"><span class="badge badge-BUY" style="padding:2px 10px;font-size:0.72rem;">BUY</span></div>'
+              +   '</div>'
+              + '</div>'
+              + '<div style="position:relative;height:120px;margin-bottom:10px;">'
+              +   '<canvas id="sc-chart-' + r.symbol + '"></canvas>'
+              + '</div>'
+              + '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.75rem;margin-bottom:10px;">'
+              +   '<span>ADX <span style="color:' + adxColor + ';font-weight:700;">' + r.adx.toFixed(1) + '</span></span>'
+              +   '<span>RSI <span style="color:' + rsiColor + ';">' + r.rsi.toFixed(1) + '</span></span>'
+              +   '<span>ST <span style="color:#68d391;font-size:0.72rem;">$' + (r.supertrend||0).toFixed(2) + '</span></span>'
+              +   '<span>Hacim <span style="color:' + volColor + ';">' + r.vol_ratio.toFixed(2) + 'x</span></span>'
+              + '</div>'
+              + '<button class="btn-chart" onclick="openChart(\'' + r.symbol + '\')" style="width:100%;text-align:center;">Detay Grafik</button>'
+              + '</div>';
           }).join('');
+
+          // Her kart icin mini chart yukle
+          d.results.forEach(function(r) {
+            loadScreenerMiniChart(r.symbol);
+          });
         })
         .catch(function() {
           document.getElementById('screenerStatus').textContent = 'Baglanti hatasi';
         });
+    }
+
+    function loadScreenerMiniChart(symbol) {
+      var canvas = document.getElementById('sc-chart-' + symbol);
+      if (!canvas) return;
+
+      fetch('/chart/' + encodeURIComponent(symbol))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.error || !canvas) return;
+          if (_screenerCharts[symbol]) { _screenerCharts[symbol].destroy(); }
+
+          _screenerCharts[symbol] = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+              labels: data.labels,
+              datasets: [
+                {
+                  label: 'Kapanis',
+                  data: data.close,
+                  borderColor: '#4299e1',
+                  backgroundColor: 'rgba(66,153,225,0.06)',
+                  borderWidth: 1.5,
+                  pointRadius: 0,
+                  fill: true,
+                  tension: 0.3,
+                },
+                // ST varlıklar icin Supertrend cizgisi
+                ...(data.strategy_type === 'ST' && data.supertrend ? [{
+                  label: 'ST',
+                  data: data.supertrend,
+                  borderColor: 'rgba(104,211,145,0.7)',
+                  borderWidth: 1,
+                  borderDash: [4, 3],
+                  pointRadius: 0,
+                  fill: false,
+                  tension: 0.1,
+                  spanGaps: false,
+                }] : []),
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: false,
+              plugins: { legend: { display: false }, tooltip: { enabled: false } },
+              scales: {
+                x: {
+                  ticks: { maxTicksLimit: 5, font: { size: 8 }, color: '#718096',
+                    callback: function(val, i) { return data.labels[i] ? data.labels[i].slice(5) : ''; }
+                  },
+                  grid: { color: 'rgba(45,55,72,0.5)' }
+                },
+                y: {
+                  ticks: { font: { size: 8 }, color: '#718096', maxTicksLimit: 3 },
+                  grid: { color: 'rgba(45,55,72,0.5)' }
+                }
+              }
+            }
+          });
+        })
+        .catch(function() {});
     }
 
     function refreshScreener() {
@@ -1233,7 +1299,7 @@
         .then(function() { loadScreener(); });
     }
 
-    // Sayfa acilinca yukle (cache varsa aninda gosterir, yoksa baslatir)
+    // Sayfa acilinca yukle
     loadScreener();
 
     /* ============================================================

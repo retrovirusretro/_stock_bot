@@ -28,13 +28,15 @@ from logger import log_info, log_error
 # Sabitler
 # ---------------------------------------------------------------------------
 
-_BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE      = os.path.join(_BASE_DIR, "logs", "screener_cache.json")
-CACHE_TTL_MIN   = 60      # Cache suresi (dakika)
-DATA_DAYS       = 180     # Her sembol icin kac gunluk veri
-BATCH_SIZE      = 50      # Tek yfinance cagrisinda kac sembol
-TOP_N           = 20      # Kac sonuc dondurulsun
-MIN_ADX         = 20      # Minimum ADX deger
+_BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE       = os.path.join(_BASE_DIR, "logs", "screener_cache.json")
+SYMBOLS_FILE     = os.path.join(_BASE_DIR, "logs", "sp500_symbols.json")
+CACHE_TTL_MIN    = 60      # Tarama sonucu cache suresi (dakika)
+SYMBOLS_TTL_HRS  = 24     # Sembol listesi cache suresi (saat)
+DATA_DAYS        = 180    # Her sembol icin kac gunluk veri
+BATCH_SIZE       = 50     # Tek yfinance cagrisinda kac sembol
+TOP_N            = 20     # Kac sonuc dondurulsun
+MIN_ADX          = 20     # Minimum ADX deger
 
 _lock      = threading.Lock()
 _is_running = False
@@ -46,12 +48,34 @@ _is_running = False
 
 def get_sp500_symbols():
     """
-    Wikipedia'dan S&P500 sembol listesini ceker.
-    Nokta iceren semboller yfinance formatina donusturulur (BRK.B -> BRK-B).
-    Wikipedia bot engelini asabilmek icin requests ile User-Agent set edilir.
+    S&P500 sembol listesini dondurur.
+
+    Oncelik sirasi:
+      1. logs/sp500_symbols.json cache (24 saat gecerli)
+      2. Wikipedia'dan cek + cache'e kaydet
+      3. Wikipedia basarisizsa eski cache'i kullan (ne kadar eskiyse)
+
+    Bu yaklasim Wikipedia'nin ayni IP'den tekrarlayan isteklere
+    verdigi 403 hatasini onler.
     """
     import requests
     from io import StringIO
+
+    os.makedirs(os.path.dirname(SYMBOLS_FILE), exist_ok=True)
+
+    # 1. Taze cache var mi?
+    if os.path.exists(SYMBOLS_FILE):
+        try:
+            with open(SYMBOLS_FILE, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            ts = datetime.fromisoformat(cached["timestamp"])
+            if datetime.now() - ts < timedelta(hours=SYMBOLS_TTL_HRS):
+                log_info(f"[SCREENER] S&P500: cache'den {len(cached['symbols'])} sembol alindi.")
+                return cached["symbols"]
+        except Exception:
+            pass
+
+    # 2. Wikipedia'dan cek
     try:
         headers = {
             "User-Agent": (
@@ -60,24 +84,61 @@ def get_sp500_symbols():
                 "Chrome/120.0.0.0 Safari/537.36"
             )
         }
-        resp    = requests.get(
+        resp = requests.get(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
             headers=headers, timeout=15
         )
         resp.raise_for_status()
         tables  = pd.read_html(StringIO(resp.text))
-        symbols = tables[0]["Symbol"].tolist()
-        symbols = [str(s).replace(".", "-") for s in symbols]
-        log_info(f"[SCREENER] S&P500: {len(symbols)} sembol alindi.")
+        tbl     = tables[0]
+        symbols = [str(s).replace(".", "-") for s in tbl["Symbol"].tolist()]
+        # Şirket adlarını da kaydet (Security kolonu)
+        names   = tbl["Security"].tolist() if "Security" in tbl.columns else [""] * len(symbols)
+        name_map = {sym: str(name) for sym, name in zip(symbols, names)}
+
+        # Cache'e kaydet
+        with open(SYMBOLS_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "timestamp": datetime.now().isoformat(),
+                "symbols":   symbols,
+                "names":     name_map,
+            }, f)
+
+        log_info(f"[SCREENER] S&P500: Wikipedia'dan {len(symbols)} sembol alindi ve cache'lendi.")
         return symbols
+
     except Exception as e:
-        log_error(f"[SCREENER] S&P500 listesi alinamadi: {e}")
-        return []
+        log_error(f"[SCREENER] Wikipedia'dan liste alinamadi: {e}")
+
+    # 3. Eski cache'i kullan (ne kadar eskiyse)
+    if os.path.exists(SYMBOLS_FILE):
+        try:
+            with open(SYMBOLS_FILE, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            log_info(f"[SCREENER] Eski cache kullaniliyor ({len(cached['symbols'])} sembol).")
+            return cached["symbols"]
+        except Exception:
+            pass
+
+    log_error("[SCREENER] Sembol listesi hic alinamadi.")
+    return []
 
 
 # ---------------------------------------------------------------------------
 # Tek sembol analizi
 # ---------------------------------------------------------------------------
+
+def get_name_map():
+    """Cache'deki sembol→şirket adı sözlüğünü döndürür."""
+    if os.path.exists(SYMBOLS_FILE):
+        try:
+            with open(SYMBOLS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("names", {})
+        except Exception:
+            pass
+    return {}
+
 
 def _analyze_df(symbol, df):
     """
@@ -141,7 +202,8 @@ def run_screen(top_n=TOP_N, min_adx=MIN_ADX):
     """
     Tum S&P500'u tarar. Sonuclari cache'e yazar, top_n en guclu sinyali dondurur.
     """
-    symbols = get_sp500_symbols()
+    symbols  = get_sp500_symbols()
+    name_map = get_name_map()
     if not symbols:
         return []
 
@@ -183,6 +245,7 @@ def run_screen(top_n=TOP_N, min_adx=MIN_ADX):
                     df = df.dropna(how="all")
                     result = _analyze_df(sym, df)
                     if result:
+                        result["name"] = name_map.get(sym, "")
                         results.append(result)
                 except Exception:
                     continue
