@@ -1193,7 +1193,9 @@
             var adxColor = r.adx >= 40 ? '#f6ad55' : '#90cdf4';
             var rsiColor = r.rsi >= 70 ? '#fc8181' : r.rsi <= 30 ? '#68d391' : '#a0aec0';
             var volColor = r.vol_ratio >= 1.5 ? '#68d391' : '#718096';
-            var nameHtml = r.name ? '<div style="font-size:0.67rem;color:#718096;margin-top:2px;line-height:1.35;max-width:200px;">' + r.name + '</div>' : '';
+            var desc = r.name || '';
+            if (r.sector && r.sector !== r.name) desc += (desc ? ' — ' : '') + r.sector;
+            var nameHtml = desc ? '<div style="font-size:0.67rem;color:#718096;margin-top:2px;line-height:1.35;max-width:200px;">' + desc + '</div>' : '';
             return '<div class="card" style="padding:14px 16px;">'
               + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">'
               +   '<div>'

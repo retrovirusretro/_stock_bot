@@ -92,9 +92,13 @@ def get_sp500_symbols():
         tables  = pd.read_html(StringIO(resp.text))
         tbl     = tables[0]
         symbols = [str(s).replace(".", "-") for s in tbl["Symbol"].tolist()]
-        # Şirket adlarını da kaydet (Security kolonu)
-        names   = tbl["Security"].tolist() if "Security" in tbl.columns else [""] * len(symbols)
-        name_map = {sym: str(name) for sym, name in zip(symbols, names)}
+        # Şirket adı + sektör bilgisini kaydet
+        names   = tbl["Security"].tolist()   if "Security"    in tbl.columns else [""] * len(symbols)
+        sectors = tbl["GICS Sector"].tolist() if "GICS Sector" in tbl.columns else [""] * len(symbols)
+        name_map = {
+            sym: {"name": str(n), "sector": str(s)}
+            for sym, n, s in zip(symbols, names, sectors)
+        }
 
         # Cache'e kaydet
         with open(SYMBOLS_FILE, "w", encoding="utf-8") as f:
@@ -129,7 +133,7 @@ def get_sp500_symbols():
 # ---------------------------------------------------------------------------
 
 def get_name_map():
-    """Cache'deki sembol→şirket adı sözlüğünü döndürür."""
+    """Cache'deki sembol → {name, sector} sözlüğünü döndürür."""
     if os.path.exists(SYMBOLS_FILE):
         try:
             with open(SYMBOLS_FILE, "r", encoding="utf-8") as f:
@@ -245,7 +249,13 @@ def run_screen(top_n=TOP_N, min_adx=MIN_ADX):
                     df = df.dropna(how="all")
                     result = _analyze_df(sym, df)
                     if result:
-                        result["name"] = name_map.get(sym, "")
+                        info = name_map.get(sym, {})
+                        if isinstance(info, dict):
+                            result["name"]   = info.get("name",   "")
+                            result["sector"] = info.get("sector", "")
+                        else:
+                            result["name"]   = str(info)
+                            result["sector"] = ""
                         results.append(result)
                 except Exception:
                     continue
