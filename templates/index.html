@@ -1434,27 +1434,39 @@
       fetch('/api/performance')
         .then(function(r) { return r.json(); })
         .then(function(d) {
-          if (d.error || !d.stats) return;
-          var s = d.stats;
+          var s = (d && d.stats) ? d.stats : null;
+
+          // Veri yoksa kartlara açıklama yaz
+          if (!s || s.trading_days === 0) {
+            var noData = '<span style="font-size:0.78rem;color:#4a5568;">Bekleniyor...</span>';
+            var noDataSub = 'Market acilinca kayit baslar';
+            ['perf-sharpe','perf-drawdown','perf-winrate','perf-totalret','perf-days'].forEach(function(id) {
+              var el = document.getElementById(id);
+              if (el) { el.innerHTML = noData; el.className = 'perf-value'; }
+            });
+            var tsuEl = document.getElementById('perf-totalusd');
+            if (tsuEl) tsuEl.textContent = noDataSub;
+            return;
+          }
 
           // Sharpe
           var sharpeEl = document.getElementById('perf-sharpe');
           if (sharpeEl) {
-            sharpeEl.textContent = s.sharpe_ratio.toFixed(2);
+            sharpeEl.textContent = Number(s.sharpe_ratio).toFixed(2);
             sharpeEl.className = 'perf-value ' + (s.sharpe_ratio >= 1 ? 'perf-good' : s.sharpe_ratio >= 0 ? 'perf-warn' : 'perf-bad');
           }
 
           // Max Drawdown
           var ddEl = document.getElementById('perf-drawdown');
           if (ddEl) {
-            ddEl.textContent = (s.max_drawdown * 100).toFixed(1) + '%';
+            ddEl.textContent = (Number(s.max_drawdown) * 100).toFixed(1) + '%';
             ddEl.className = 'perf-value ' + (s.max_drawdown < 0.05 ? 'perf-good' : s.max_drawdown < 0.10 ? 'perf-warn' : 'perf-bad');
           }
 
           // Win rate
           var wrEl = document.getElementById('perf-winrate');
           if (wrEl) {
-            wrEl.textContent = (s.win_rate * 100).toFixed(0) + '%';
+            wrEl.textContent = (Number(s.win_rate) * 100).toFixed(0) + '%';
             wrEl.className = 'perf-value ' + (s.win_rate >= 0.55 ? 'perf-good' : s.win_rate >= 0.45 ? 'perf-warn' : 'perf-bad');
           }
 
@@ -1462,21 +1474,23 @@
           var trEl  = document.getElementById('perf-totalret');
           var tsuEl = document.getElementById('perf-totalusd');
           if (trEl) {
-            var retPct = (s.total_return * 100).toFixed(2);
+            var retPct = (Number(s.total_return) * 100).toFixed(2);
             var sign   = s.total_return >= 0 ? '+' : '';
             trEl.textContent  = sign + retPct + '%';
             trEl.style.color  = s.total_return >= 0 ? '#68d391' : '#fc8181';
           }
           if (tsuEl) {
             var usdSign = s.total_return_usd >= 0 ? '+' : '';
-            tsuEl.textContent = usdSign + '$' + Math.abs(s.total_return_usd).toFixed(2) + ' toplam';
+            tsuEl.textContent = usdSign + '$' + Math.abs(Number(s.total_return_usd)).toFixed(2) + ' toplam';
           }
 
           // Days
           var daysEl = document.getElementById('perf-days');
           if (daysEl) daysEl.textContent = s.trading_days;
         })
-        .catch(function() {});
+        .catch(function(err) {
+          console.warn('Performance API hatasi:', err);
+        });
     })();
 
     function buildBbChart(data) {
