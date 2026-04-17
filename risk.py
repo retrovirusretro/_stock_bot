@@ -59,6 +59,22 @@ class RiskManager:
         qty = int(self.capital * self.max_position_pct / price)
         return max(0, qty)
 
+    def position_notional_value(self):
+        """
+        Pozisyon icin harcanacak maksimum dolar tutari.
+        Kucuk sermayede (capital < 1000) fractional share icin kullanilir.
+        Formul: capital * max_position_pct
+        Ornek: capital=50, max_position_pct=0.20 -> $10 notional
+        """
+        return round(self.capital * self.max_position_pct, 2)
+
+    def use_notional(self, price):
+        """
+        Notional order kullanilmali mi?
+        Tam hisse alinabiliyorsa False (standart qty), alinmiyorsa True.
+        """
+        return self.position_size(price) == 0
+
     def atr_position_size(self, price, atr, risk_per_trade=0.01):
         """
         ATR tabanli pozisyon boyutu.

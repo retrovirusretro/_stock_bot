@@ -64,7 +64,16 @@ DATA_DAYS = 300  # SMA200 icin en az 250 is gunu gerekli
 # Risk Yoneticisi
 # ---------------------------------------------------------------------------
 
-risk = RiskManager(capital=100000)
+risk = RiskManager(
+    capital            = 50,      # Canli hesap baslangic sermayesi ($)
+    max_position_pct   = 0.20,    # %20 per pozisyon ($10) — kucuk sermaye icin
+    stop_loss_pct      = 0.03,    # %3 stop-loss
+    take_profit_pct    = 0.06,    # %6 take-profit
+    daily_loss_limit   = 0.05,    # %5 gunluk kayip limiti ($2.50)
+    max_open_positions = 3,       # Max 3 pozisyon ($30 toplam)
+    max_drawdown_pct   = 0.15,    # %15 drawdown limiti ($7.50)
+    consecutive_loss_limit = 3,
+)
 
 # Gunluk kayip takibi (basit, in-memory; her calistirildiginda sifirlanir)
 _daily_loss = 0.0
@@ -338,7 +347,16 @@ def handle_signal(result):
             )
             return
 
-        broker.place_buy_order(symbol, qty)
+        # Tam hisse alinamazsa notional (dolar bazli) order kullan
+        if risk.use_notional(price):
+            notional = risk.position_notional_value()
+            log_info(
+                f"[ORDER] {symbol}: fractional order — ${notional:.2f} notional "
+                f"(qty=0 cunku fiyat=${price:.2f} > sermaye*pct=${notional:.2f})"
+            )
+            broker.place_buy_order_notional(symbol, notional)
+        else:
+            broker.place_buy_order(symbol, qty)
         _open_positions_count += 1
 
     elif action == "SELL":

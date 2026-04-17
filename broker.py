@@ -129,7 +129,7 @@ def get_position_symbols():
 
 
 def place_buy_order(symbol, qty):
-    """Market order BUY gonder."""
+    """Market order BUY gonder (tam hisse adeti ile)."""
     try:
         req = MarketOrderRequest(
             symbol=symbol,
@@ -142,6 +142,33 @@ def place_buy_order(symbol, qty):
         return order
     except Exception as e:
         log_error(f"place_buy_order({symbol}, {qty}) hatasi: {e}")
+        return None
+
+
+def place_buy_order_notional(symbol, notional):
+    """
+    Market order BUY — dolar tutari bazli (fractional share).
+
+    Kucuk sermayede (orn: $50) tam hisse alinamayan durumlarda kullanilir.
+    Alpaca notional orderlar icin minimum $1, TimeInForce=DAY sart.
+    Ornek: notional=10.0 -> $10 degerinde AAPL (0.05 hisse gibi)
+    """
+    try:
+        notional = round(float(notional), 2)
+        if notional < 1.0:
+            log_error(f"place_buy_order_notional({symbol}): notional={notional} < $1 minimum, atlanıyor.")
+            return None
+        req = MarketOrderRequest(
+            symbol=symbol,
+            notional=notional,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.DAY,
+        )
+        order = _get_trading_client().submit_order(req)
+        log_order(symbol, "BUY", f"${notional:.2f}(notional)", str(order.status))
+        return order
+    except Exception as e:
+        log_error(f"place_buy_order_notional({symbol}, {notional}) hatasi: {e}")
         return None
 
 
