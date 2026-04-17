@@ -21,8 +21,13 @@ import json
 import os
 import requests
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
 from logger import log_info, log_error
+
+# .env'i yukle (paper_trader veya standalone calisma her ikisinde de calisir)
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_ENV_PATH)
 
 # ---------------------------------------------------------------------------
 # Sabitler
