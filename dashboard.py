@@ -339,5 +339,15 @@ def api_pnl():
         return jsonify({"history": [], "today": None, "error": str(exc)}), 500
 
 
+@app.route("/api/performance")
+def api_performance():
+    """Sharpe ratio, max drawdown, win rate, toplam getiri dondurur."""
+    try:
+        stats = reporter.get_performance_stats()
+        return jsonify({"stats": stats, "error": None})
+    except Exception as exc:
+        return jsonify({"stats": None, "error": str(exc)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)

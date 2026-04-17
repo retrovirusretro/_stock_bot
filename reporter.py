@@ -12,6 +12,7 @@ Format: {"2026-04-17": {"start": 100000, "end": 100150, "positions": ["USO"]}}
 """
 
 import json
+import math
 import os
 from datetime import date
 from logger import log_info, log_error
@@ -151,6 +152,104 @@ def get_today():
         "change":    change,
         "pct":       pct,
         "positions": entry.get("positions", []),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Performans istatistikleri
+# ---------------------------------------------------------------------------
+
+def get_performance_stats():
+    """
+    Tum PnL gecmisinden performans istatistiklerini hesaplar.
+
+    Returns dict:
+        sharpe_ratio    : Annualized Sharpe ratio (sqrt(252) * mean/std of daily returns)
+        max_drawdown    : En buyuk tepe-cukur dusus orani (0-1)
+        win_rate        : Kazancli gun orani (0-1)
+        total_return    : Toplam getiri orani (0-1)
+        total_return_usd: Toplam getiri USD
+        avg_daily_pct   : Gunluk ortalama getiri (%)
+        trading_days    : Veri icindeki gun sayisi
+        start_equity    : Ilk kayitli equity
+        current_equity  : En son kayitli equity
+    """
+    data = _load()
+    if not data:
+        return _empty_stats()
+
+    days = sorted(data.keys())
+    if len(days) < 2:
+        return _empty_stats()
+
+    equities = []
+    for d in days:
+        entry  = data[d]
+        end_eq = entry.get("end", entry.get("start", 0.0))
+        equities.append(float(end_eq))
+
+    # Gunluk getiriler (log yerine basit oran)
+    daily_returns = []
+    for i in range(1, len(equities)):
+        if equities[i - 1] > 0:
+            r = (equities[i] - equities[i - 1]) / equities[i - 1]
+            daily_returns.append(r)
+
+    # Sharpe ratio (annualized, risk-free = 0)
+    sharpe = 0.0
+    if len(daily_returns) >= 2:
+        mean_r = sum(daily_returns) / len(daily_returns)
+        var_r  = sum((r - mean_r) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+        std_r  = math.sqrt(var_r) if var_r > 0 else 0.0
+        if std_r > 0:
+            sharpe = round((mean_r / std_r) * math.sqrt(252), 2)
+
+    # Max drawdown
+    peak   = equities[0]
+    max_dd = 0.0
+    for eq in equities:
+        if eq > peak:
+            peak = eq
+        dd = (peak - eq) / peak if peak > 0 else 0.0
+        if dd > max_dd:
+            max_dd = dd
+
+    # Win rate (kazancli gunler)
+    wins     = sum(1 for r in daily_returns if r > 0)
+    win_rate = round(wins / len(daily_returns), 4) if daily_returns else 0.0
+
+    # Toplam getiri
+    start_eq   = equities[0]
+    current_eq = equities[-1]
+    total_ret  = round((current_eq - start_eq) / start_eq, 4) if start_eq > 0 else 0.0
+    total_usd  = round(current_eq - start_eq, 2)
+
+    avg_daily  = round(sum(daily_returns) / len(daily_returns) * 100, 4) if daily_returns else 0.0
+
+    return {
+        "sharpe_ratio":     sharpe,
+        "max_drawdown":     round(max_dd, 4),
+        "win_rate":         win_rate,
+        "total_return":     total_ret,
+        "total_return_usd": total_usd,
+        "avg_daily_pct":    avg_daily,
+        "trading_days":     len(days),
+        "start_equity":     round(start_eq,   2),
+        "current_equity":   round(current_eq, 2),
+    }
+
+
+def _empty_stats():
+    return {
+        "sharpe_ratio":     0.0,
+        "max_drawdown":     0.0,
+        "win_rate":         0.0,
+        "total_return":     0.0,
+        "total_return_usd": 0.0,
+        "avg_daily_pct":    0.0,
+        "trading_days":     0,
+        "start_equity":     0.0,
+        "current_equity":   0.0,
     }
 
 

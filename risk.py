@@ -11,13 +11,15 @@ class RiskManager:
 
     Parametreler
     ------------
-    capital            : Baslangic sermayesi (TL veya USD)
-    max_position_pct   : Tek islem icin max sermaye orani  (varsayilan: %5)
-    stop_loss_pct      : Stop-loss orani                   (varsayilan: %3)
-    take_profit_pct    : Take-profit orani                 (varsayilan: %6)
-    daily_loss_limit   : Gunluk max kayip orani            (varsayilan: %2)
-    weekly_loss_limit  : Haftalik max kayip orani          (varsayilan: %5)
-    max_open_positions : Ayni anda max acik pozisyon sayisi (varsayilan: 3)
+    capital               : Baslangic sermayesi (TL veya USD)
+    max_position_pct      : Tek islem icin max sermaye orani  (varsayilan: %5)
+    stop_loss_pct         : Stop-loss orani                   (varsayilan: %3)
+    take_profit_pct       : Take-profit orani                 (varsayilan: %6)
+    daily_loss_limit      : Gunluk max kayip orani            (varsayilan: %2)
+    weekly_loss_limit     : Haftalik max kayip orani          (varsayilan: %5)
+    max_open_positions    : Ayni anda max acik pozisyon sayisi (varsayilan: 3)
+    max_drawdown_pct      : Max izin verilen drawdown orani   (varsayilan: %10)
+    consecutive_loss_limit: Ust uste kayip gun limiti         (varsayilan: 3)
     """
 
     def __init__(
@@ -29,6 +31,8 @@ class RiskManager:
         daily_loss_limit=0.02,
         weekly_loss_limit=0.05,
         max_open_positions=3,
+        max_drawdown_pct=0.10,
+        consecutive_loss_limit=3,
     ):
         self.capital = float(capital)
         self.max_position_pct = float(max_position_pct)
@@ -37,6 +41,8 @@ class RiskManager:
         self.daily_loss_limit = float(daily_loss_limit)
         self.weekly_loss_limit = float(weekly_loss_limit)
         self.max_open_positions = int(max_open_positions)
+        self.max_drawdown_pct = float(max_drawdown_pct)
+        self.consecutive_loss_limit = int(consecutive_loss_limit)
 
     # ------------------------------------------------------------------
     # Pozisyon boyutu
@@ -110,6 +116,35 @@ class RiskManager:
         limit = self.capital * self.daily_loss_limit
         return daily_loss >= limit
 
+    def check_drawdown(self, current_equity, peak_equity):
+        """
+        Maksimum drawdown limitine ulasildi mi?
+
+        current_equity : Anlik hesap equity degeri.
+        peak_equity    : Bot basindan beri gorulmus en yuksek equity.
+
+        Returns True eger drawdown >= max_drawdown_pct (islem durdur).
+        """
+        if peak_equity <= 0:
+            return False
+        drawdown = (peak_equity - current_equity) / peak_equity
+        return drawdown >= self.max_drawdown_pct
+
+    def drawdown_pct(self, current_equity, peak_equity):
+        """Anlık drawdown oranini (0-1) dondurur."""
+        if peak_equity <= 0:
+            return 0.0
+        return max(0.0, (peak_equity - current_equity) / peak_equity)
+
+    def check_consecutive_losses(self, loss_streak):
+        """
+        Ust uste kayip gun limiti asildi mi?
+
+        loss_streak: Kac gun arka arkaya kayip yasandi (int).
+        Returns True eger loss_streak >= consecutive_loss_limit (islem durdur).
+        """
+        return loss_streak >= self.consecutive_loss_limit
+
     def can_open_position(self, open_positions_count):
         """
         Yeni pozisyon acilabilir mi?
@@ -131,6 +166,8 @@ class RiskManager:
             "daily_loss_limit": self.daily_loss_limit,
             "weekly_loss_limit": self.weekly_loss_limit,
             "max_open_positions": self.max_open_positions,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "consecutive_loss_limit": self.consecutive_loss_limit,
             "max_position_value": round(self.capital * self.max_position_pct, 2),
             "daily_loss_threshold": round(self.capital * self.daily_loss_limit, 2),
             "weekly_loss_threshold": round(self.capital * self.weekly_loss_limit, 2),

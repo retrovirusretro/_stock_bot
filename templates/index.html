@@ -311,6 +311,63 @@
       color: #4a5568;
       margin-top: 4px;
     }
+
+    /* ---- Performance cards ---- */
+    .perf-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .perf-card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 14px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .perf-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 100%;
+      border-radius: 10px 0 0 10px;
+    }
+
+    .perf-card.accent-blue::before   { background: #4299e1; }
+    .perf-card.accent-green::before  { background: #48bb78; }
+    .perf-card.accent-red::before    { background: #fc8181; }
+    .perf-card.accent-yellow::before { background: #f6ad55; }
+    .perf-card.accent-purple::before { background: #9f7aea; }
+
+    .perf-label {
+      font-size: 0.67rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #718096;
+      margin-bottom: 6px;
+    }
+
+    .perf-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .perf-sub {
+      font-size: 0.68rem;
+      color: #718096;
+      line-height: 1.3;
+    }
+
+    .perf-good { color: #68d391; }
+    .perf-warn { color: #f6ad55; }
+    .perf-bad  { color: #fc8181; }
+    .perf-neu  { color: #90cdf4; }
   </style>
 </head>
 <body>
@@ -357,6 +414,38 @@
       {% endif %}
     </div>
 
+  </div>
+
+  <!-- ---- Performance Cards ---- -->
+  <div style="margin-bottom:6px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#4a5568;">
+    Performans Ozeti
+  </div>
+  <div class="perf-grid" id="perfGrid">
+    <div class="perf-card accent-blue">
+      <div class="perf-label">Sharpe Ratio</div>
+      <div class="perf-value perf-neu" id="perf-sharpe">—</div>
+      <div class="perf-sub">Yillastirilmis (sqrt 252)</div>
+    </div>
+    <div class="perf-card accent-red">
+      <div class="perf-label">Maks. Drawdown</div>
+      <div class="perf-value perf-bad" id="perf-drawdown">—</div>
+      <div class="perf-sub">Tepe'den en derin dusus</div>
+    </div>
+    <div class="perf-card accent-green">
+      <div class="perf-label">Kazanma Orani</div>
+      <div class="perf-value perf-good" id="perf-winrate">—</div>
+      <div class="perf-sub">Kazancli gunler / toplam</div>
+    </div>
+    <div class="perf-card accent-yellow">
+      <div class="perf-label">Toplam Getiri</div>
+      <div class="perf-value" id="perf-totalret" style="color:#e2e8f0;">—</div>
+      <div class="perf-sub" id="perf-totalusd">Baslangictan beri</div>
+    </div>
+    <div class="perf-card accent-purple">
+      <div class="perf-label">Islem Gunu</div>
+      <div class="perf-value perf-neu" id="perf-days">—</div>
+      <div class="perf-sub">Kayitli gun sayisi</div>
+    </div>
   </div>
 
   <!-- ---- Symbols table ---- -->
@@ -1336,6 +1425,58 @@
           var tbody = document.getElementById('pnlTableBody');
           if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:#fc8181;">Veri alinamadi.</td></tr>';
         });
+    })();
+
+    /* ============================================================
+       PERFORMANS KARTLARI
+    ============================================================ */
+    (function loadPerformance() {
+      fetch('/api/performance')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.error || !d.stats) return;
+          var s = d.stats;
+
+          // Sharpe
+          var sharpeEl = document.getElementById('perf-sharpe');
+          if (sharpeEl) {
+            sharpeEl.textContent = s.sharpe_ratio.toFixed(2);
+            sharpeEl.className = 'perf-value ' + (s.sharpe_ratio >= 1 ? 'perf-good' : s.sharpe_ratio >= 0 ? 'perf-warn' : 'perf-bad');
+          }
+
+          // Max Drawdown
+          var ddEl = document.getElementById('perf-drawdown');
+          if (ddEl) {
+            ddEl.textContent = (s.max_drawdown * 100).toFixed(1) + '%';
+            ddEl.className = 'perf-value ' + (s.max_drawdown < 0.05 ? 'perf-good' : s.max_drawdown < 0.10 ? 'perf-warn' : 'perf-bad');
+          }
+
+          // Win rate
+          var wrEl = document.getElementById('perf-winrate');
+          if (wrEl) {
+            wrEl.textContent = (s.win_rate * 100).toFixed(0) + '%';
+            wrEl.className = 'perf-value ' + (s.win_rate >= 0.55 ? 'perf-good' : s.win_rate >= 0.45 ? 'perf-warn' : 'perf-bad');
+          }
+
+          // Total return
+          var trEl  = document.getElementById('perf-totalret');
+          var tsuEl = document.getElementById('perf-totalusd');
+          if (trEl) {
+            var retPct = (s.total_return * 100).toFixed(2);
+            var sign   = s.total_return >= 0 ? '+' : '';
+            trEl.textContent  = sign + retPct + '%';
+            trEl.style.color  = s.total_return >= 0 ? '#68d391' : '#fc8181';
+          }
+          if (tsuEl) {
+            var usdSign = s.total_return_usd >= 0 ? '+' : '';
+            tsuEl.textContent = usdSign + '$' + Math.abs(s.total_return_usd).toFixed(2) + ' toplam';
+          }
+
+          // Days
+          var daysEl = document.getElementById('perf-days');
+          if (daysEl) daysEl.textContent = s.trading_days;
+        })
+        .catch(function() {});
     })();
 
     function buildBbChart(data) {

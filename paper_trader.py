@@ -69,6 +69,11 @@ risk = RiskManager(capital=100000)
 _daily_loss = 0.0
 _open_positions_count = 0
 
+# Drawdown + ardisik kayip takibi
+_peak_equity         = 0.0   # Bot basladigindan beri gorulmus en yuksek equity
+_consecutive_losses  = 0     # Arka arkaya kac gun kayip
+_last_pnl_date       = ""    # Son PnL hesaplama tarihi (gun basi reset icin)
+
 
 # ---------------------------------------------------------------------------
 # Yardimci fonksiyonlar
@@ -148,6 +153,46 @@ def analyze_symbol(symbol):
         return None
 
 
+def _update_risk_state(current_equity):
+    """
+    Her iterasyon sonunda cagrilir:
+    - Peak equity'yi gunceller
+    - Ardisik kayip sayacini gunceller (gun basi degisince)
+    """
+    global _peak_equity, _consecutive_losses, _last_pnl_date
+
+    # Peak equity takibi
+    if current_equity > _peak_equity:
+        _peak_equity = current_equity
+        log_info(f"[RISK] Yeni peak equity: ${_peak_equity:,.2f}")
+
+    # Drawdown kontrolu (loglama amacli)
+    dd_pct = risk.drawdown_pct(current_equity, _peak_equity) * 100
+    if dd_pct >= 5.0:
+        log_info(
+            f"[RISK] Drawdown uyarisi: %{dd_pct:.1f} "
+            f"(peak=${_peak_equity:,.2f}, guncel=${current_equity:,.2f})"
+        )
+
+    # Ardisik kayip: sadece gun degisiminde guncelle
+    today = __import__("datetime").date.today().isoformat()
+    if today != _last_pnl_date and _last_pnl_date != "":
+        # Yeni gun — onceki gun karda miydi yoksa zararli miydi?
+        today_data = reporter.get_today()
+        if today_data and today_data["change"] < 0:
+            _consecutive_losses += 1
+            log_info(
+                f"[RISK] Ardisik kayip: {_consecutive_losses} gun "
+                f"(limit: {risk.consecutive_loss_limit})"
+            )
+        elif today_data and today_data["change"] >= 0:
+            if _consecutive_losses > 0:
+                log_info(f"[RISK] Kazancli gun — ardisik kayip sayaci sifirlanıyor.")
+            _consecutive_losses = 0
+
+    _last_pnl_date = today
+
+
 def handle_signal(result):
     """
     Sinyal logla; SEND_ORDERS=True ise emir gonder.
@@ -175,6 +220,14 @@ def handle_signal(result):
             f"[RISK] Gunluk kayip limiti asildi "
             f"(kayip={_daily_loss:.2f}, limit={risk.capital * risk.daily_loss_limit:.2f}). "
             f"Islem durduruldu."
+        )
+        return
+
+    # --- Risk: ardisik kayip devre kesici ---
+    if risk.check_consecutive_losses(_consecutive_losses):
+        log_info(
+            f"[RISK] {symbol} BUY atlanadi: {_consecutive_losses} gun ust uste kayip "
+            f"(limit: {risk.consecutive_loss_limit} gun). Islem duraklatildi."
         )
         return
 
@@ -283,8 +336,17 @@ def run():
 
     # Alpaca'daki gercek acik pozisyon sayisini al
     # (bot yeniden baslarsa _open_positions_count sifirlanir — senkronize et)
-    global _open_positions_count
+    global _open_positions_count, _peak_equity, _consecutive_losses
     _open_positions_count = broker.get_open_positions_count()
+
+    # Peak equity'yi mevcut bakiyeden baslatiyoruz
+    try:
+        acct_init = broker.get_account()
+        if acct_init:
+            _peak_equity = float(acct_init["equity"])
+            log_info(f"[RISK] Baslangic equity: ${_peak_equity:,.2f} | Peak: ${_peak_equity:,.2f}")
+    except Exception as e:
+        log_error(f"Baslangic equity alinamadi: {e}")
 
     iteration = 0
 
@@ -298,20 +360,44 @@ def run():
             time.sleep(LOOP_INTERVAL)
             continue
 
+        # --- Drawdown devre kesici ---
+        # Her iterasyonda equity cek, drawdown limiti asildiysa BUY gonderme
+        _drawdown_halt = False
+        try:
+            acct_chk = broker.get_account()
+            if acct_chk and _peak_equity > 0:
+                cur_eq = float(acct_chk["equity"])
+                if risk.check_drawdown(cur_eq, _peak_equity):
+                    dd_pct = risk.drawdown_pct(cur_eq, _peak_equity) * 100
+                    log_info(
+                        f"[RISK] DRAWDOWN LIMITI ASILDI: %{dd_pct:.1f} "
+                        f"(peak=${_peak_equity:,.2f}, guncel=${cur_eq:,.2f}, "
+                        f"limit=%{risk.max_drawdown_pct*100:.0f}). "
+                        f"Yeni BUY emirleri durduruldu."
+                    )
+                    _drawdown_halt = True
+        except Exception as e:
+            log_error(f"Drawdown kontrolu hatasi: {e}")
+
         # Her sembol icin analiz
         for symbol in SYMBOLS:
             result = analyze_symbol(symbol)
             if result:
+                # Drawdown haltinda sadece SELL sinyallerine izin ver
+                if _drawdown_halt and result.get("action") == "BUY":
+                    log_info(f"[RISK] {symbol} BUY drawdown halti nedeniyle atlandi.")
+                    continue
                 handle_signal(result)
             else:
                 log_error(f"{symbol} analiz edilemedi, atlaniyor.")
 
-        # Gunluk PnL raporu
+        # Gunluk PnL raporu + drawdown/ardisik kayip kontrolleri
         try:
             acct = broker.get_account()
             if acct:
                 pos_symbols = broker.get_position_symbols()
                 reporter.update(acct["equity"], pos_symbols)
+                _update_risk_state(float(acct["equity"]))
         except Exception as e:
             log_error(f"PnL guncelleme hatasi: {e}")
 
